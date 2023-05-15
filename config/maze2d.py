@@ -56,7 +56,8 @@ base = {
         'loader': 'datasets.GoalDataset',
         'termination_penalty': None,
         'normalizer': 'LimitsNormalizer',
-        'preprocess_fns': ['maze2d_set_terminals'],
+        # 'preprocess_fns': ['maze2d_set_terminals'],
+        'preprocess_fns': None,
         'clip_denoised': True,
         'use_padding': False,
         'max_path_length': 20000,
@@ -169,7 +170,7 @@ base = {
     'online_training': {
         
         ## useful
-        'dirname_d':'silu_sample_t_buffer_selection',
+        'dirname_d':'pandas',
         'horizon': 384,
         'max_path_length': 800,
         'batch_size': 64,
@@ -190,7 +191,7 @@ base = {
         'load_model':False,
         'reinit_buffer':False,
         'scale': 0.001,
-        'predict_action':False,
+        'predict_action':True,
         'loss_type': 'l2',
 
 

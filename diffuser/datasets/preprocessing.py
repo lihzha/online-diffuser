@@ -4,7 +4,7 @@ import einops
 from scipy.spatial.transform import Rotation as R
 import pdb
 
-from .d4rl import load_environment
+# from .d4rl import load_environment
 
 #-----------------------------------------------------------------------------#
 #-------------------------------- general api --------------------------------#
@@ -20,8 +20,11 @@ def compose(*fns):
     return _fn
 
 def get_preprocess_fn(fn_names, env):
-    fns = [eval(name)(env) for name in fn_names]
-    return compose(*fns)
+    if fn_names:
+        fns = [eval(name)(env) for name in fn_names]
+        return compose(*fns)
+    else:
+        return None
 
 def get_policy_preprocess_fn(fn_names):
     fns = [eval(name) for name in fn_names]

@@ -4,9 +4,11 @@ import torch
 import pdb
 
 from .preprocessing import get_preprocess_fn
-from .d4rl import load_environment, sequence_dataset
+# from .d4rl import load_environment, sequence_dataset
 from .normalization import DatasetNormalizer
 from .buffer import ReplayBuffer
+import gymnasium as gym
+import panda_gym
 
 Batch = namedtuple('Batch', 'trajectories conditions')
 ValueBatch = namedtuple('ValueBatch', 'trajectories conditions values')
@@ -17,7 +19,9 @@ class SequenceDataset(torch.utils.data.Dataset):
         normalizer='LimitsNormalizer', preprocess_fns=[], max_path_length=1000,
         max_n_episodes=10000, termination_penalty=0, use_padding=True, online=False, predict_action=True):
         self.preprocess_fn = get_preprocess_fn(preprocess_fns, env)
-        self.env = env = load_environment(env)
+        print(env)
+        # self.env = env = load_environment(env)
+        self.env = gym.make("PandaReach-v3", render_mode="rgb_array")
         self.horizon = horizon
         self.max_path_length = max_path_length
         self.use_padding = use_padding
@@ -27,22 +31,22 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.predict_action = predict_action
         fields = ReplayBuffer(max_n_episodes, max_path_length, termination_penalty)
         self.fields = fields
-        if online == False:
-            itr = sequence_dataset(env, self.preprocess_fn)
-            for i, episode in enumerate(itr):
-                if i == max_n_episodes:
-                    break
-                fields.add_path(episode)
-            fields.finalize()
+        # if online == False:
+        #     itr = sequence_dataset(env, self.preprocess_fn)
+        #     for i, episode in enumerate(itr):
+        #         if i == max_n_episodes:
+        #             break
+        #         fields.add_path(episode)
+        #     fields.finalize()
 
-            self.normalizer = DatasetNormalizer(fields, normalizer, path_lengths=fields['path_lengths'])
-            self.indices = self.make_indices(fields.path_lengths, horizon)
-            self.path_lengths = fields.path_lengths
-            self.observation_dim = fields.observations.shape[-1]
-            self.action_dim = fields.actions.shape[-1]
-            self.n_episodes = fields.n_episodes
-            self.fields = fields
-            self.normalize()
+        #     self.normalizer = DatasetNormalizer(fields, normalizer, path_lengths=fields['path_lengths'])
+        #     self.indices = self.make_indices(fields.path_lengths, horizon)
+        #     self.path_lengths = fields.path_lengths
+        #     self.observation_dim = fields.observations.shape[-1]
+        #     self.action_dim = fields.actions.shape[-1]
+        #     self.n_episodes = fields.n_episodes
+        #     self.fields = fields
+        #     self.normalize()
         
         print(fields)
         # shapes = {key: val.shape for key, val in self.fields.items()}

@@ -1,7 +1,7 @@
 import os
 import collections
 import numpy as np
-import gym
+import gymnasium as gym
 import pdb
 
 from contextlib import (
@@ -22,7 +22,7 @@ def suppress_output():
 
 with suppress_output():
     ## d4rl prints out a variety of warnings
-    import d4rl
+    # import d4rl
 
 #-----------------------------------------------------------------------------#
 #-------------------------------- general api --------------------------------#

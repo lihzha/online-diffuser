@@ -18,7 +18,8 @@ from diffuser.models.EBM import EBMDiffusionModel
 #-----------------------------------------------------------------------------#
 
 class Parser(utils.Parser):
-    dataset: str = 'maze2d-large-v1'
+    # dataset: str = 'maze2d-large-v1'
+    dataset: str = 'PandaReach-v3'
     config: str = 'config.maze2d'
 
 class gt_density_model(nn.Module):

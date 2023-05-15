@@ -12,7 +12,7 @@ import pdb
 from .arrays import to_np
 from .video import save_video, save_videos
 
-from diffuser.datasets.d4rl import load_environment
+# from diffuser.datasets.d4rl import load_environment
 
 #-----------------------------------------------------------------------------#
 #------------------------------- helper structs ------------------------------#
