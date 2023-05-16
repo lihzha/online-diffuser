@@ -1,0 +1,11 @@
+_target_: agent.sac.SACAgent
+nstep: ${buffer.nstep}
+hidden_dim: [256, 256, 256]
+target_update_interval: 1
+lr_actor: 5.0e-4
+lr_critic: 5.0e-4
+lr_alpha: 2.0e-4
+gamma: 0.99
+tau: 0.005
+log_std_min: -20
+log_std_max: 1

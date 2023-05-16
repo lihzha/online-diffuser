@@ -19,10 +19,14 @@ class SequenceDataset(torch.utils.data.Dataset):
         normalizer='LimitsNormalizer', preprocess_fns=[], max_path_length=1000,
         max_n_episodes=10000, termination_penalty=0, use_padding=True, online=False, predict_action=True):
         self.preprocess_fn = get_preprocess_fn(preprocess_fns, env)
-        print(env)
         # self.env = env = load_environment(env)
-        self.env = gym.make("PandaReach-v3", render_mode="rgb_array")
+        if isinstance(env, str):
+            self.env = gym.make(env, render_mode="rgb_array")
+        else:
+            self.env = env
         self.horizon = horizon
+        self.action_dim = self.env.action_space.shape[0]
+        self.observation_dim = self.env.observation_space['observation'].shape[0]
         self.max_path_length = max_path_length
         self.use_padding = use_padding
         self.max_n_episodes = max_n_episodes

@@ -515,7 +515,7 @@ if __name__ == "__main__":
         env=args_d.dataset,
     )
     dataset_d = dataset_config_d()
-    renderer_d = render_config_d()
+    renderer_d = dataset_d.env.render
     if dataset_d.env.name == 'maze2d-large-v1':
         observation_dim = 4
         action_dim = 2

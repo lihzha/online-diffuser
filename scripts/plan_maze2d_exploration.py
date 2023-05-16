@@ -12,7 +12,9 @@ import diffuser.utils as utils
 from diffuser.datasets.buffer import ReplayBuffer
 from diffuser.datasets.normalization import DatasetNormalizer
 from diffuser.models.EBM import EBMDiffusionModel
-
+import gymnasium as gym
+import panda_gym
+import cv2
 #-----------------------------------------------------------------------------#
 #----------------------------------- setup -----------------------------------#
 #-----------------------------------------------------------------------------#
@@ -145,36 +147,38 @@ class online_trainer:
                 actions, next_obs, obs, rew, terminals = [], [], [], [], []
             else:
                 next_obs, obs, rew, terminals = [], [], [], []
-            self.observation = self.env.reset()
-            self.args_train.set_t = min(0.5/3000 * it,0.5)
-            p_explore = self.args_train.p_explore
+            obs_info = self.env.reset()
+            self.observation = obs_info[0]['observation']
+            # self.args_train.set_t = min(0.5/3000 * it,0.5)
+            # p_explore = self.args_train.p_explore
         # --------------------------- Setting target ----------------------------#
-            set_t = np.random.binomial(1,self.args_train.set_t)
-            if self.args_train.conditional:
-                print('Resetting target')
-                if set_t:
-                    try:
-                        target = self.sample_target()
-                        self.env.set_target(target)
-                    except:
-                        self.env.set_target()
-                    target = self.env._target
-                    cond = {
-                        self.horizon - 1: np.array([*target, 0, 0])
-                    }
-                else:
-                    self.env.set_target()
-                    target = self.env._target
-                    cond = {
-                        self.horizon - 1: np.array([*target, 0, 0]),
-                    }      
+            # set_t = np.random.binomial(1,self.args_train.set_t)
+            target = obs_info[0]['desired_goal']
+            # if self.args_train.conditional:
+            #     print('Resetting target')
+            #     if set_t:
+            #         try:
+            #             target = self.sample_target()
+            #             self.env.set_target(target)
+            #         except:
+            #             self.env.set_target()
+            #         target = self.env._target
+            #         cond = {
+            #             self.horizon - 1: np.array([*target, 0, 0])
+            #         }
+            #     else:
+            #         self.env.set_target()
+            #         target = self.env._target
+            cond = {
+                self.horizon - 1: np.array([*target, 0, 0, 0]),
+            }      
 
             # ------------------------- For renderering --------------------------#
             self.rollout = [np.concatenate((target,(0.,0.))),self.observation.copy()]
 
             for t in range(self.max_path_length):
                 
-                state = self.env.state_vector().copy()
+                # state = self.env.state_vector().copy()
                 
                 if open_loop:
                     if t == 0:
@@ -185,34 +189,35 @@ class online_trainer:
                             samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=p_explore)
                         sequence = samples.observations[0]
 
-                    if t < len(sequence) - 1:
-                        next_waypoint = sequence[t+1]
-                    else:
-                        next_waypoint = sequence[-1].copy()
-                        next_waypoint[2:] = 0
-                    action = next_waypoint[:2] - state[:2] + (next_waypoint[2:] - state[2:])
+                    # if t < len(sequence) - 1:
+                    #     next_waypoint = sequence[t+1]
+                    # else:
+                    #     next_waypoint = sequence[-1].copy()
+                    #     next_waypoint[2:] = 0
+                    # action = next_waypoint[:2] - state[:2] + (next_waypoint[2:] - state[2:])
                 else:
                     if t % self.horizon == 0:
                         cond[0] = self.observation
-                        state = self.env.state_vector().copy()
+                        # state = self.env.state_vector().copy()
                         if self.args_train.predict_action:
-                            action, samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=p_explore)
+                            action, samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=0)
                         else:
-                            samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=p_explore)
-                    sequence = samples.observations[0]
-                    try:
-                        next_waypoint = sequence[t-t//self.horizon*self.horizon+1].copy()
-                    except:
-                        next_waypoint = sequence[t-t//self.horizon*self.horizon].copy()
-                    action = next_waypoint[:2] - state[:2] + (next_waypoint[2:] - state[2:])
+                            samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=0)
+                    # sequence = samples.observations[0]
+                    # try:
+                    #     next_waypoint = sequence[t-t//self.horizon*self.horizon+1].copy()
+                    # except:
+                    #     next_waypoint = sequence[t-t//self.horizon*self.horizon].copy()
+                    # action = next_waypoint[:2] - state[:2] + (next_waypoint[2:] - state[2:])
 
-                next_observation, reward, terminal, _ = self.env.step(action)
-
+                next_observation, reward, terminated, truncated, info = self.env.step(action)
+                next_observation = next_observation['observation']
+                # cv2.imwrite('trial_rendering.png',self.env.render())
                 if np.linalg.norm((next_observation - self.observation)[:2]) < 1e-3 and it!=0:
                     break
 
                 self.total_reward += reward
-                score = self.env.get_normalized_score(self.total_reward)
+                # score = self.env.get_normalized_score(self.total_reward)
                 self.rollout.append(next_observation.copy())
                 if 'maze2d' in self.args_train.dataset:
                     xy = next_observation[:2]
@@ -220,16 +225,20 @@ class online_trainer:
                     print(
                         f'it: {it} | maze | pos: {xy} | goal: {goal}'
                     )
-                
+                else:
+                    xy = next_observation[:3]
+                    print(
+                        f'it: {it} | panda | pos: {xy} | goal: {target}'
+                    )
 
                 if self.args_train.predict_action:
                     actions.append(action)               
                 next_obs.append(next_observation)
                 obs.append(self.observation)
                 rew.append(reward)
-                terminals.append(terminal)
+                terminals.append(terminated)
 
-                if terminal:
+                if terminated:
                     break
 
                 self.observation = next_observation
@@ -259,13 +268,13 @@ class online_trainer:
             total_reward.append(self.total_reward)
             print('Average total reward is:', sum(total_reward)/len(total_reward))
             print('Non-zero rewards is:', len(np.nonzero(total_reward)[0])/len(total_reward)*100, "%")
-            total_score.append(score) 
+            # total_score.append(score) 
 
                 
             if it % self.args_train.train_freq == self.args_train.train_freq - 1:
                 num_trainsteps = self.process_dataset(it)
                 # self.save_buffer()
-                self.diffusion_trainer.train(num_trainsteps, p_explore=p_explore, online=True)
+                self.diffusion_trainer.train(num_trainsteps, p_explore=0, online=True)
                 # self.test(it)
                 # for i in range(100):
                 #     o = 10*i+2
@@ -637,10 +646,12 @@ if __name__ == "__main__":
     #---------------------------------- initialize diffusion ---------------------#
     #-----------------------------------------------------------------------------#
     
+    env = gym.make(args_train.env, render_mode="rgb_array")
+
     dataset_config_d = utils.Config(
         args_d.loader,
         savepath=(args_d.savepath, 'dataset_config_d.pkl'),
-        env=args_d.dataset,
+        env=env,
         horizon=args_d.horizon,
         normalizer=args_d.normalizer,
         preprocess_fns=args_d.preprocess_fns,
@@ -649,25 +660,20 @@ if __name__ == "__main__":
         predict_action = args_train.predict_action,
         online=args_train.online,
     )
-    render_config_d = utils.Config(
-        args_d.renderer,
-        savepath=(args_d.savepath, 'render_config_d.pkl'),
-        env=args_d.dataset,
-    )
+    renderer_d = env.render
+    # render_config_d = utils.Config(
+    #     args_d.renderer,
+    #     savepath=(args_d.savepath, 'render_config_d.pkl'),
+    #     env=args_d.dataset,
+    # )
     dataset_d = dataset_config_d()
-    renderer_d = render_config_d()
-    if dataset_d.env.name == 'maze2d-large-v1':
-        observation_dim = 4
-        dataset_d.observation_dim = 4
-        if args_train.predict_action:
-            action_dim = 2
-            dataset_d.action_dim = 2
-            transition_dim = observation_dim + action_dim
-        else:
-            action_dim = 0
-            dataset_d.action_dim = 0
-            transition_dim = observation_dim
-
+    # renderer_d = render_config_d()
+    observation_dim = env.observation_space['observation'].shape[0]
+    action_dim = env.action_space.shape[0]
+    if args_train.predict_action_only:
+        transition_dim = action_dim
+    else:
+        transition_dim = observation_dim + action_dim
     model_config_d = utils.Config(
         args_d.model,
         savepath=(args_d.savepath, 'model_config_d.pkl'),

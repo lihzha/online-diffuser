@@ -208,7 +208,16 @@ class Trainer(object):
         ####
 
         savepath = os.path.join(self.logdir, f'_sample-reference.png')
-        self.renderer.composite(savepath, observations)
+        # self.renderer.composite(savepath, observations)
+        render_idx = np.random.choice(observations.shape[0], 9, replace=False)
+        fig = plt.figure(figsize=(12, 12))
+        img_idx = 331
+        for i in render_idx: 
+            ax = fig.add_subplot(img_idx,projection='3d')
+            img_idx += 1
+            ax.scatter(observations[i,:,0], observations[i,:,1],observations[i,:,2])
+    
+        plt.savefig(savepath)
 
     def render_samples(self, p_explore, batch_size=2, n_samples=2):
         '''
@@ -260,4 +269,8 @@ class Trainer(object):
             ####
 
             savepath = os.path.join(self.logdir, f'sample-{self.step}-{i}.png')
-            self.renderer.composite(savepath, observations)
+            # self.renderer.composite(savepath, observations)
+            fig = plt.figure(figsize=(12, 12))
+            ax = fig.add_subplot(111,projection='3d')
+            ax.scatter(observations[0,:,0], observations[0,:,1],observations[0,:,2])
+            plt.savefig(savepath)

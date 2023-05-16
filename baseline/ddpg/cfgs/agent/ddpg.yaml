@@ -1,0 +1,9 @@
+_target_: agent.ddpg.DDPGAgent
+nstep: ${buffer.nstep}
+hidden_dim: [300, 400]
+gamma: 0.99
+tau: 0.005
+lr_actor: 2.0e-4
+lr_critic: 5.0e-4
+target_update_interval: 1
+eps_schedule: linear(1, 0.05, 1000, 100000)

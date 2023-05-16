@@ -1,0 +1,12 @@
+_target_: agent.td3.TD3Agent
+nstep: ${buffer.nstep}
+hidden_dim: [400, 300]
+target_update_interval: 1
+lr_actor: 5.0e-4
+lr_critic: 5.0e-4
+gamma: 0.99
+tau: 0.005
+policy_update_interval: 2
+policy_noise: 0.1
+noise_clip: 0.3
+eps_schedule: linear(1, 0.05, 1000, 100000)

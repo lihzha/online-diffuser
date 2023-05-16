@@ -1,0 +1,35 @@
+seeds:
+- 0
+- 42
+- 3407
+tag: null
+env_name: PandaReach-v3
+vec_envs: 1
+train:
+  nstep: ${buffer.nstep}
+  vec_envs: ${vec_envs}
+  timesteps: 200000
+  batch_size: 128
+  plot_interval: 5000
+  eval_interval: 5000
+  eval_episodes: 5
+buffer:
+  capacity: 200000
+  use_per: false
+  nstep: 1
+  gamma: ${agent.gamma}
+  per_alpha: 0.7
+  per_beta: 0.4
+  per_eps: 0.01
+agent:
+  _target_: agent.ddpg.DDPGAgent
+  nstep: ${buffer.nstep}
+  hidden_dim:
+  - 300
+  - 400
+  gamma: 0.99
+  tau: 0.005
+  lr_actor: 0.0002
+  lr_critic: 0.0005
+  target_update_interval: 1
+  eps_schedule: linear(1, 0.05, 1000, 100000)

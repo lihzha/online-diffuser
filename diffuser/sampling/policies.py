@@ -51,17 +51,17 @@ class GuidedPolicy:
             else:
                 observations = normed_observations
         ## extract first action
-            action = actions.reshape((-1,actions.shape[0],actions.shape[1]))[0, 0]
+            action = actions[0, 0]
 
            # trajectories = Trajectories(actions, observations, samples.values.reshape(-1,1))
-            trajectories = Trajectories(actions, observations)
+            trajectories = Trajectories(action, observations)
             return action, trajectories
         else:
             if it:
                 observations = self.normalizer.unnormalize(normed_observations, 'observations')
             else:
                 observations = normed_observations
-            trajectories = Trajectories_obs(observations)
+            trajectories = Trajectories_obs(action, observations)
             return trajectories
 
     @property
