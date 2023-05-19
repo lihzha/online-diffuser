@@ -76,7 +76,7 @@ base = {
         'gradient_accumulate_every': 2,
         'ema_decay': 0.995,
         'save_freq': 1000,
-        'sample_freq': 500,
+        'sample_freq': 1000,
         'n_saves': 50,
         'save_parallel': False,
         'n_reference': 50,
@@ -170,13 +170,13 @@ base = {
     'online_training': {
         
         ## useful
-        'dirname_d':'panda',
+        'dirname_d':'panda_finetune_target',
         'env':'PandaStack-v3',
-        'horizon': 192,
+        'horizon': 2,
         'max_path_length': 400,
-        'batch_size': 64,
+        'batch_size': 1,
         'n_diffusion_steps': 128*2,        
-        'train_freq': 500,
+        'train_freq': 10,
         'ddim_timesteps': 8,
         'device': 'cuda:3',
         'ddim': True,
@@ -192,9 +192,9 @@ base = {
         'load_model':False,
         'reinit_buffer':False,
         'scale': 0.001,
-        'predict_action':True,
+        'predict_action':False,
         'predict_action_only':False,
-        'loss_type': 'weightedl2',
+        'loss_type': 'l2',
 
 
         'discount': 0.997,

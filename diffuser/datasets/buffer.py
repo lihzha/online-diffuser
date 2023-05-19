@@ -117,10 +117,10 @@ class ReplayBuffer:
         
         for i in range(data.shape[0]):
             episode = {}
-            observations = data[i,:,:]
+            observations = data[i,:,4:]
             episode['observations'] = observations
-            # actions = data[i,:,:2]
-            # episode['actions'] = actions
+            actions = data[i,:,:4]
+            episode['actions'] = actions
             episode['terminals'] = np.zeros((observations.shape[0],1))
             self.add_path(episode)
 

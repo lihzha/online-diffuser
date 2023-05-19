@@ -12,12 +12,13 @@ Trajectories_obs = namedtuple('Trajectories', 'observations')
 
 class GuidedPolicy:
 
-    def __init__(self, guide, diffusion_model, normalizer, preprocess_fns, **sample_kwargs):
+    def __init__(self, guide, diffusion_model, normalizer, preprocess_fns, predict_action, **sample_kwargs):
         self.guide = guide
         self.diffusion_model = diffusion_model
         self.normalizer = normalizer
         self.action_dim = diffusion_model.action_dim
         self.preprocess_fn = get_policy_preprocess_fn(preprocess_fns)
+        self.predict_action = predict_action
         sample_kwargs.__delitem__('_device')
         self.sample_kwargs = sample_kwargs
 
@@ -32,36 +33,24 @@ class GuidedPolicy:
         trajectories = utils.to_np(samples.trajectories)
         # trajectories = samples.detach().cpu().numpy()
         # trajectories = trajectories.squeeze()
-        ## extract action [ batch_size x horizon x transition_dim ]
-        try:    
+        if self.predict_action:
             normed_observations = trajectories[:, :, self.action_dim:]
-        except:
-            normed_observations = trajectories[:, self.action_dim:] 
-            
-        if self.action_dim != 0:
-            try:
-                actions = trajectories[:, :, :self.action_dim]
-            except:
-                actions = trajectories[:, :self.action_dim]   
-
-        ## generated more samples
+            normed_actions = trajectories[:, :, :self.action_dim]
             if it:
                 actions = self.normalizer.unnormalize(actions, 'actions')
                 observations = self.normalizer.unnormalize(normed_observations, 'observations')
             else:
                 observations = normed_observations
-        ## extract first action
-            action = actions[0, 0]
-
-           # trajectories = Trajectories(actions, observations, samples.values.reshape(-1,1))
-            trajectories = Trajectories(action, observations)
-            return action, trajectories
+                actions = normed_actions
+            trajectories = Trajectories(actions, observations)
+            return trajectories
         else:
+            normed_observations = trajectories[:, :, self.action_dim:]
             if it:
                 observations = self.normalizer.unnormalize(normed_observations, 'observations')
             else:
                 observations = normed_observations
-            trajectories = Trajectories_obs(action, observations)
+            trajectories = Trajectories_obs(observations)
             return trajectories
 
     @property

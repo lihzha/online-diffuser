@@ -10,6 +10,7 @@ from .timer import Timer
 from .cloud import sync_logs
 import torch.nn as nn
 import matplotlib.pyplot as plt
+import cv2
 
 def cycle(dl):
     while True:
@@ -50,7 +51,7 @@ class Trainer(object):
         # update_ema_every=1000,
         update_ema_every=10,
         log_freq=100,
-        sample_freq=500,
+        sample_freq=1000,
         save_freq=1000,
         label_freq=100000,
         save_parallel=False,
@@ -195,7 +196,8 @@ class Trainer(object):
         conditions = to_np(batch.conditions[0])[:,None]
 
         ## [ batch_size x horizon x observation_dim ]
-        normed_observations = trajectories[:, :, self.dataset.action_dim:]
+        # normed_observations = trajectories[:, :, self.dataset.action_dim:]
+        normed_observations = trajectories
         observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
 
         # from diffusion.datasets.preprocessing import blocks_cumsum_quat
@@ -215,7 +217,7 @@ class Trainer(object):
         for i in render_idx: 
             ax = fig.add_subplot(img_idx,projection='3d')
             img_idx += 1
-            ax.scatter(observations[i,:,0], observations[i,:,1],observations[i,:,2])
+            ax.plot3D(observations[i,:,0], observations[i,:,1],observations[i,:,2])
     
         plt.savefig(savepath)
 
@@ -223,6 +225,7 @@ class Trainer(object):
         '''
             renders samples from (ema) diffusion model
         '''
+        n_samples = 1
         for i in range(batch_size):
 
             ## get a single datapoint
@@ -243,9 +246,9 @@ class Trainer(object):
             # self.ema_model.ddim=True
             samples = to_np(samples.trajectories)
             # samples = to_np(samples)
-
+            self.render_movie(samples, i)
             ## [ n_samples x horizon x observation_dim ]
-            normed_observations = samples[:, :, self.dataset.action_dim:]
+            normed_observations = samples
 
             # [ 1 x 1 x observation_dim ]
             normed_conditions = to_np(batch.conditions[0])[:,None]
@@ -262,7 +265,6 @@ class Trainer(object):
 
             ## [ n_samples x (horizon + 1) x observation_dim ]
             observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
-
             #### @TODO: remove block-stacking specific stuff
             # from diffusion.datasets.preprocessing import blocks_euler_to_quat, blocks_add_kuka
             # observations = blocks_add_kuka(observations)
@@ -272,5 +274,28 @@ class Trainer(object):
             # self.renderer.composite(savepath, observations)
             fig = plt.figure(figsize=(12, 12))
             ax = fig.add_subplot(111,projection='3d')
-            ax.scatter(observations[0,:,0], observations[0,:,1],observations[0,:,2])
+            ax.plot3D(observations[0,:,0], observations[0,:,1],observations[0,:,2])
             plt.savefig(savepath)
+
+    def render_movie(self, samples, i):
+
+        savepath = os.path.join(self.logdir, f'sample-{self.step}-{i}.mp4')
+        env = self.dataset.env
+        _ = env.reset()
+        img = env.render()
+        width = img.shape[1]
+        height = img.shape[0]
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v') # FourCC is a 4-byte code used to specify the video codec.
+        video = cv2.VideoWriter(savepath, fourcc, float(30), (width, height))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        video.write(img)
+        normed_actions = samples[:, 0, :]
+        actions = self.dataset.normalizer.unnormalize(normed_actions, 'observations')
+
+        for a in actions:
+            _ = env.step(a)
+            img = env.render()
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            video.write(img)
+
+        video.release()

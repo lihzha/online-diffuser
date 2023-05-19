@@ -2,7 +2,6 @@ import os
 import time
 import copy
 from os.path import join
-from collections import deque
 import sys
 import torch.nn as nn
 import torch
@@ -81,11 +80,17 @@ class online_trainer:
         self.diffusion_trainer.guide = self.policy.guide
         self.diffusion_trainer.sample_kwargs = self.policy.sample_kwargs
 
+
         self.init_args()
-        # self.refresh_buffer()
-        self.buffer = copy.deepcopy(self.diffusion_trainer.dataset.fields)
+        if self.args_train.reinit_buffer:
+            self.refresh_buffer()
+        else:
+            self.buffer = copy.deepcopy(self.diffusion_trainer.dataset.fields)
 
         self.env = self.diffusion_trainer.dataset.env
+        self.robot = self.env.unwrapped.robot
+        self.action_dim = self.env.action_space.shape[0]
+        self.observation_dim = self.env.observation_space['observation'].shape[0]
         self.total_reward = 0
         self.score = []
 
@@ -94,18 +99,13 @@ class online_trainer:
         #     self.neg_state_dist = torch.sigmoid(torch.tensor(-np.log(state_dist))).numpy()
         #     self.state_dist_flat = self.neg_state_dist.flatten()
         
-        self.ep_num = deque([0,0],maxlen=2)
-        self.sample_num = deque([0,0],maxlen=2)
-        # specific to skew-fit
-        # obs_dim = trainer_v.ema_model.transition_dim - trainer_v.ema_model.cond_dim
-        # self.vae = LinearVAE(obs_dim)
-        # self.q_goal = q_goal(model=self.vae, dataset=self.value_trainer.dataset.fields)
 
     def init_args(self):
         """Override the arguments in preloaded trainer."""
         
         args_list = ['discount', 'max_n_episodes', 'max_path_length', 'termination_penalty', \
-                    'batch_size', 'horizon', 'normed', 'use_padding', 'normalizer', 'buffer_size']
+                    'batch_size', 'horizon', 'normed', 'use_padding', 'normalizer', 'buffer_size',
+                    'predict_action']
         for k in args_list:
             v = self.args_train.__getattribute__(k)
             self.__setattr__(k, v)
@@ -125,10 +125,10 @@ class online_trainer:
             self.buffer = ReplayBuffer(self.max_n_episodes, self.max_path_length, \
                                             self.termination_penalty)
         else:
-            obs = np.load('/home/lihan/diffuser-maze2d/logs/maze2d-large-v1/diffusion/4_14_ebm_scratch_changing_pexplore_scale0.01/buffer_vis.npy')[-500:]
+            data = np.load('/home/lihan/diffuser-maze2d/logs/maze2d-large-v1/diffusion/5_16_panda/buffer_vis.npy')
             self.buffer = ReplayBuffer(self.max_n_episodes, self.max_path_length, 
                                             self.termination_penalty)
-            self.buffer.reinit(obs)
+            self.buffer.reinit(data)
 
 
     def train(self):
@@ -136,8 +136,7 @@ class online_trainer:
 
         total_reward = []
         total_score = []
-        open_loop = False
-
+        self.traj_len = 200
         for it in range(self.args_train.iterations):
 
         # --------------------------- Initialization ----------------------------#
@@ -149,76 +148,51 @@ class online_trainer:
                 next_obs, obs, rew, terminals = [], [], [], []
             obs_info = self.env.reset()
             self.observation = obs_info[0]['observation']
+            self.observation = np.concatenate((self.observation[:3],self.observation[-1][None]),axis=0)
             # self.args_train.set_t = min(0.5/3000 * it,0.5)
             # p_explore = self.args_train.p_explore
         # --------------------------- Setting target ----------------------------#
             # set_t = np.random.binomial(1,self.args_train.set_t)
-            target = obs_info[0]['desired_goal']
-            # if self.args_train.conditional:
-            #     print('Resetting target')
-            #     if set_t:
-            #         try:
-            #             target = self.sample_target()
-            #             self.env.set_target(target)
-            #         except:
-            #             self.env.set_target()
-            #         target = self.env._target
-            #         cond = {
-            #             self.horizon - 1: np.array([*target, 0, 0])
-            #         }
-            #     else:
-            #         self.env.set_target()
-            #         target = self.env._target
+            # t1 = np.random.multinomial(1,[0.25,0.25,0.25,0.25])[0][0]
+            self.sample_target()
+            t1=2
+            if t1==0:
+                target = obs_info[0]['desired_goal'][:3]
+            elif t1==1:
+                target = obs_info[0]['desired_goal'][3:]
+            elif t1==2:
+                target = obs_info[0]['achieved_goal'][:3]
+            elif t1==3:
+                target = obs_info[0]['achieved_goal'][3:]
+            
             cond = {
-                self.horizon - 1: np.array([*target, 0, 0, 0]),
-            }      
+                self.traj_len - 1: np.array([*target, 0]),
+            }
 
             # ------------------------- For renderering --------------------------#
-            self.rollout = [np.concatenate((target,(0.,0.))),self.observation.copy()]
+            # self.rollout = [np.concatenate((target,(0.,0.))),self.observation.copy()]
 
             for t in range(self.max_path_length):
                 
-                # state = self.env.state_vector().copy()
-                
-                if open_loop:
-                    if t == 0:
-                        cond[0] = self.observation
-                        if self.args_train.predict_action:
-                            action, samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=p_explore)
-                        else:
-                            samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=p_explore)
-                        sequence = samples.observations[0]
-
-                    # if t < len(sequence) - 1:
-                    #     next_waypoint = sequence[t+1]
-                    # else:
-                    #     next_waypoint = sequence[-1].copy()
-                    #     next_waypoint[2:] = 0
-                    # action = next_waypoint[:2] - state[:2] + (next_waypoint[2:] - state[2:])
-                else:
-                    if t % self.horizon == 0:
-                        cond[0] = self.observation
-                        # state = self.env.state_vector().copy()
-                        if self.args_train.predict_action:
-                            action, samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=0)
-                        else:
-                            samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=0)
-                    # sequence = samples.observations[0]
-                    # try:
-                    #     next_waypoint = sequence[t-t//self.horizon*self.horizon+1].copy()
-                    # except:
-                    #     next_waypoint = sequence[t-t//self.horizon*self.horizon].copy()
-                    # action = next_waypoint[:2] - state[:2] + (next_waypoint[2:] - state[2:])
-
+                if t % self.traj_len == 0:
+                    cond[0] = np.concatenate((self.observation[:3],self.observation[-1][None]))
+                    cnt = 0
+                    # state = self.env.state_vector().copy()
+                    samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=0)
+                    observations = samples.observations
+                action = observations[cnt, 0, :self.action_dim]
+                cnt += 1
                 next_observation, reward, terminated, truncated, info = self.env.step(action)
                 next_observation = next_observation['observation']
+                next_observation = np.concatenate((next_observation[:3],next_observation[-1][None]),axis=0)
+                
                 # cv2.imwrite('trial_rendering.png',self.env.render())
-                if np.linalg.norm((next_observation - self.observation)[:2]) < 1e-3 and it!=0:
-                    break
+                # if np.linalg.norm((next_observation - self.observation)[:3]) < 1e-3 and it!=0:
+                #     break
 
                 self.total_reward += reward
                 # score = self.env.get_normalized_score(self.total_reward)
-                self.rollout.append(next_observation.copy())
+                # self.rollout.append(next_observation.copy())
                 if 'maze2d' in self.args_train.dataset:
                     xy = next_observation[:2]
                     goal = self.env.unwrapped._target
@@ -227,14 +201,15 @@ class online_trainer:
                     )
                 else:
                     xy = next_observation[:3]
+                    dist = np.linalg.norm(xy-target)
                     print(
-                        f'it: {it} | panda | pos: {xy} | goal: {target}'
+                        f'it: {it} | panda | dist: {dist}'
                     )
 
                 if self.args_train.predict_action:
                     actions.append(action)               
                 next_obs.append(next_observation)
-                obs.append(self.observation)
+                obs.append(self.observation.copy())
                 rew.append(reward)
                 terminals.append(terminated)
 
@@ -252,12 +227,6 @@ class online_trainer:
                     episode = self.format_episode(None,next_obs,obs,rew,terminals)
                 self.add_to_fields(episode)
             
-            # if len(obs) > 0:
-            #     if self.args_train.predict_action:
-            #         episode = self.format_episode(actions,next_obs,obs,rew,terminals)
-            #     else:
-            #         episode = self.format_episode(None,next_obs,obs,rew,terminals)
-            #     self.add_to_fields(episode)
 
             if it == 0:
                 dataset = self.diffusion_trainer.dataset
@@ -398,63 +367,31 @@ class online_trainer:
 
         dataset = self.diffusion_trainer.dataset
         self.initialize_normalizer(dataset)
-        obs_energy = self.compute_buffer_energy(dataset)
-        buffer_size = dataset.fields['observations'].shape[0]
-        # self.ep_num[1] = self.ep_num[0] + self.ep_num[1]
-        # ep_this_turn = buffer_size - self.ep_num[1]
-        # self.ep_num.append(ep_this_turn)
+        # obs_energy = self.compute_buffer_energy(dataset)
+        # buffer_size = dataset.fields['observations'].shape[0]
         # sample_size=1000
-        sample_size = np.random.randint(buffer_size // 2, int(buffer_size))
-        print("sample_size", sample_size)
+        # sample_size = np.random.randint(buffer_size // 2, int(buffer_size))
+        # sample_size = buffer_size
+        # print("sample_size", sample_size)
         # batch_size = min(sample_size, 64)
-        # self.sample_num[1] = self.sample_num[0] + self.sample_num[1]
-        # self.sample_num.append(sample_size)
-        self.energy_sampling(dataset.fields, sample_size, obs_energy)
+        # self.energy_sampling(dataset.fields, sample_size, obs_energy)
         # self._sample_data(dataset.fields, sample_size)    
         dataset.indices = dataset.make_indices(dataset.fields.path_lengths, dataset.horizon)
 
-        # Get buffer for behaviour policy
-        # if it <= 99:
-        #     train_freq = 20
-        #     buffer_size = it
-        #     num_trainsteps = it * 10
-        # elif it <= 499:
-        #     train_freq = 50
-        #     buffer_size = it // 2
-        #     num_trainsteps = min(it * 20, 8000)
-        # elif it <= 1000:
-        #     train_freq = 100
-        #     buffer_size = it // 2
-        #     num_trainsteps = min(buffer_size * 15, 20000)
-        # else:
-        #     train_freq = 200
-        #     buffer_size = it // 2
-        #     num_trainsteps = min(buffer_size * 15, 20000)
         
         # train_dataset = copy.deepcopy(self.diffusion_trainer.dataset)
         # self._sample_data(train_dataset.fields,buffer_size)
         # train_dataset.indices = train_dataset.make_indices(train_dataset.fields.path_lengths, self.diffusion_trainer.dataset.horizon)
-
-        # The same setting for diffusion dataset
-        # args_list = ['fields', 'indices']
-        # self.override_dataset_args(diffusion_dataset, train_dataset, args_list)
-        # args_list = ['horizon', 'n_episodes', 'max_path_length', 'normalizer', 'path_lengths']
-        # self.override_dataset_args(diffusion_dataset, self.value_trainer.dataset, args_list)
-
-
-        # Create dataloader using processed dataset
-        # self.value_trainer.dataloader = cycle(torch.utils.data.DataLoader(
-        #     train_dataset, batch_size=32, num_workers=1, shuffle=True, pin_memory=True
-        # ))
         self.diffusion_trainer.dataloader = cycle(torch.utils.data.DataLoader(
-            dataset, batch_size=32, \
+            dataset, batch_size=256, \
             num_workers=1, shuffle=True, pin_memory=True
         ))  #### should be train_dataset
         self.diffusion_trainer.dataloader_vis = cycle(torch.utils.data.DataLoader(
                 dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True
             ))
 
-        num_trainsteps = min(sample_size*5, 10000)
+        # num_trainsteps = min(sample_size*5, 10000)
+        num_trainsteps = 100000
         return num_trainsteps
 
     def initialize_normalizer(self, dataset):
@@ -476,37 +413,37 @@ class online_trainer:
         obs = _dict['observations']
         obs_dim = obs.shape[0]
 
-        index = np.zeros(obs_dim,dtype=np.int32)
-        for i in range(obs_dim):
-            index[i] = obs[i,:,0].nonzero()[0][-1]
-        traj_len = np.array([np.linalg.norm(obs[i][index[i]][:2] - obs[i][0][:2]) for i in range(obs_dim)])
-        p_sample_len = traj_len / np.sum(traj_len)
-        # traj_rewards = np.array([np.exp(_dict['rewards'][i].sum()) for i in range(_dict['rewards'].shape[0])])
-        # p_sample = traj_rewards / np.sum(traj_rewards)
+        # index = np.zeros(obs_dim,dtype=np.int32)
+        # for i in range(obs_dim):
+        #     index[i] = obs[i,:,0].nonzero()[0][-1]
+        # traj_len = np.array([np.linalg.norm(obs[i][index[i]][:2] - obs[i][0][:2]) for i in range(obs_dim)])
+        # p_sample_len = traj_len / np.sum(traj_len)
+        # # traj_rewards = np.array([np.exp(_dict['rewards'][i].sum()) for i in range(_dict['rewards'].shape[0])])
+        # # p_sample = traj_rewards / np.sum(traj_rewards)
 
-        if self.args_train.ebm:
-            if self.args_train.predict_action:
-                actions = _dict['actions']
-                trajectories = np.concatenate([actions, obs], axis=-1)
-            else:
-                trajectories = obs
-            trajectories = torch.tensor(trajectories, dtype=torch.float, device=self.args_train.device)
-            t = torch.full((trajectories.shape[0],), 0, device=self.args_train.device, dtype=torch.long)
-            energy = self.policy.diffusion_model.model.point_energy(trajectories, None, t).sum(-1)
-            p_sample_prob = (energy / energy.sum()).detach().cpu().numpy()
-        else:
-            obs = torch.tensor(obs[:,:,:2], dtype=torch.float, device=self.args_train.device)
-            raw_density = gt_density(obs).squeeze(-1)
-            for i in range(obs_dim):
-                raw_density[i,index[i]+1:] = 0
-            p_sample_prob = 1 / (raw_density.sum(-1))
-            p_sample_prob = (p_sample_prob / p_sample_prob.sum()).detach().cpu().numpy()
+        # if self.args_train.ebm:
+        #     if self.args_train.predict_action:
+        #         actions = _dict['actions']
+        #         trajectories = np.concatenate([actions, obs], axis=-1)
+        #     else:
+        #         trajectories = obs
+        #     trajectories = torch.tensor(trajectories, dtype=torch.float, device=self.args_train.device)
+        #     t = torch.full((trajectories.shape[0],), 0, device=self.args_train.device, dtype=torch.long)
+        #     energy = self.policy.diffusion_model.model.point_energy(trajectories, None, t).sum(-1)
+        #     p_sample_prob = (energy / energy.sum()).detach().cpu().numpy()
+        # else:
+        #     obs = torch.tensor(obs[:,:,:2], dtype=torch.float, device=self.args_train.device)
+        #     raw_density = gt_density(obs).squeeze(-1)
+        #     for i in range(obs_dim):
+        #         raw_density[i,index[i]+1:] = 0
+        #     p_sample_prob = 1 / (raw_density.sum(-1))
+        #     p_sample_prob = (p_sample_prob / p_sample_prob.sum()).detach().cpu().numpy()
         
-        p_sample = p_sample_len * p_sample_prob
-        p_sample = p_sample / p_sample.sum()
+        # p_sample = p_sample_len * p_sample_prob
+        # p_sample = p_sample / p_sample.sum()
 
         # sample_index = np.random.choice(obs_dim,size=sample_size,replace=False,p=p_sample)
-        sample_index = np.random.choice(obs_dim,size=sample_size,replace=True, p=p_sample_len)
+        sample_index = np.random.choice(obs_dim,size=sample_size,replace=False)
 
         # p_new = min((self.sample_num[-2] + self.sample_num[-1]) * self.ep_num[-1] / self.sample_num[-1] \
         #         / (self.ep_num[-2] + self.ep_num[-1]), 1.) 
@@ -602,8 +539,8 @@ class online_trainer:
         # sample_idx = np.random.choice(np.prod(self.obs_energy.shape), size=1, p=self.obs_energy.flatten()/self.obs_energy.sum())[0]
         # target = self.target_set[sample_idx//self.target_set.shape[1], sample_idx-sample_idx//self.target_set.shape[1]*self.target_set.shape[1]][:2]
         
-        traj_shape = (50, self.horizon, self.diffusion_trainer.model.observation_dim)
-        target_traj = utils.arrays.sample_from_array(np.array(([ 0.48975977,  0.50192666, -5.2262554 , -5.2262554 ],[ 7.213778 , 10.215629 ,  5.2262554,  5.2262554]),dtype=np.float32), traj_shape=traj_shape)
+        traj_shape = (50, self.horizon, 4)
+        target_traj = utils.arrays.sample_from_array(np.array(([-1,-1,-1,-1],[1,1,1,1]),dtype=np.float32), traj_shape=traj_shape)
         obs = torch.tensor(target_traj, device=self.args_train.device, dtype=torch.float32)
         t = torch.zeros(obs.shape[0],device=obs.device)
         cond = None
@@ -661,19 +598,20 @@ if __name__ == "__main__":
         online=args_train.online,
     )
     renderer_d = env.render
-    # render_config_d = utils.Config(
-    #     args_d.renderer,
-    #     savepath=(args_d.savepath, 'render_config_d.pkl'),
-    #     env=args_d.dataset,
-    # )
+
     dataset_d = dataset_config_d()
-    # renderer_d = render_config_d()
-    observation_dim = env.observation_space['observation'].shape[0]
-    action_dim = env.action_space.shape[0]
-    if args_train.predict_action_only:
-        transition_dim = action_dim
-    else:
-        transition_dim = observation_dim + action_dim
+
+    # observation_dim = env.observation_space['observation'].shape[0]
+    # action_dim = env.action_space.shape[0]
+    # if args_train.predict_action_only:
+    #     transition_dim = action_dim
+    # else:
+    #     transition_dim = observation_dim + action_dim
+    # if args_train.predict_action:
+    #     transition_dim = 4
+    transition_dim = 4
+    observation_dim = 4
+    action_dim = 0
     model_config_d = utils.Config(
         args_d.model,
         savepath=(args_d.savepath, 'model_config_d.pkl'),
@@ -734,75 +672,8 @@ if __name__ == "__main__":
     diffusion_d = diffusion_config_d(model_d)
     trainer_d = trainer_config_d(diffusion_d, dataset_d, renderer_d, args.device)
     if args_train.load_model:
-        trainer_d.load('/home/lihan/diffuser-maze2d/logs/maze2d-large-v1/diffusion/5_9_silu_sample_t/state_80000.pt')
-    #-----------------------------------------------------------------------------#
-    #------------------------------- initialize value ----------------------------#
-    #-----------------------------------------------------------------------------#
-    # dataset_config_v = utils.Config(
-    #     args_v.loader,
-    #     savepath=(args_v.savepath, 'dataset_config_v.pkl'),
-    #     env=args_v.dataset,
-    #     horizon=args_v.horizon,
-    #     normalizer=args_v.normalizer,
-    #     preprocess_fns=args_v.preprocess_fns,
-    #     use_padding=args_train.use_padding,
-    #     max_path_length=args_d.max_path_length,
-    #     ## value-specific kwargs
-    #     discount=args_train.discount,
-    #     termination_penalty=args_train.termination_penalty,
-    #     online=True,
-    #     # normed=args_train.normed,
-    # )
-    # render_config_v = utils.Config(
-    #     args_v.renderer,
-    #     savepath=(args_v.savepath, 'render_config_v.pkl'),
-    #     env=args_v.dataset,
-    # )
-    # dataset_v = dataset_config_v()
-    # renderer_v = render_config_v()
-
-    # model_config_v = utils.Config(
-    #     args_v.model,
-    #     savepath=(args_v.savepath, 'model_config_v.pkl'),
-    #     horizon=args_v.horizon,
-    #     transition_dim=observation_dim + action_dim,
-    #     cond_dim=observation_dim,
-    #     dim_mults=args_v.dim_mults,
-    #     device=args_v.device,
-    # )
-    # diffusion_config_v = utils.Config(
-    #     args_v.diffusion,
-    #     savepath=(args_v.savepath, 'diffusion_config_v.pkl'),
-    #     horizon=args_v.horizon,
-    #     observation_dim=observation_dim,
-    #     action_dim=action_dim,
-    #     ddim = True,
-    #     ddim_timesteps = args_train.ddim_timesteps,
-    #     n_timesteps=args_v.n_diffusion_steps,
-    #     loss_type=args_v.loss_type,
-    #     device=args_v.device,
-    # )
-    # trainer_config_v = utils.Config(
-    #     utils.Trainer,
-    #     device=args.device,
-    #     savepath=(args_v.savepath, 'trainer_config_v.pkl'),
-    #     train_batch_size=args_v.batch_size,
-    #     train_lr=args_v.learning_rate,
-    #     gradient_accumulate_every=args_v.gradient_accumulate_every,
-    #     ema_decay=args_v.ema_decay,
-    #     sample_freq=args_v.sample_freq,
-    #     save_freq=args_v.save_freq,
-    #     label_freq=int(args_v.n_train_steps // args_v.n_saves),
-    #     save_parallel=args_v.save_parallel,
-    #     results_folder=args_v.savepath,
-    #     bucket=args_v.bucket,
-    #     n_reference=args_v.n_reference,
-    #     n_samples = args_v.n_samples,
-    #     online=True
-    # )
-    # model_v = model_config_v()
-    # diffusion_v = diffusion_config_v(model_v)
-    # trainer_v = trainer_config_v(diffusion_v, dataset_v, renderer_v, args.device)
+        trainer_d.load('/home/lihan/diffuser-maze2d/logs/maze2d-large-v1/diffusion/5_16_panda/state_120000.pt')
+    
 
     ## initialize policy arguments
     diffusion = trainer_d.ema_model
@@ -841,6 +712,7 @@ if __name__ == "__main__":
         scale_grad_by_std=args.scale_grad_by_std,
         eta=args.eta,
         verbose=False,
+        predict_action=args_train.predict_action,
         _device=args_train.device
     )
 

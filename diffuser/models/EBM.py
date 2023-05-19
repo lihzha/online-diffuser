@@ -9,7 +9,7 @@ class EBMDiffusionModel(nn.Module):
 
     def point_energy(self, x, cond, t):
         score = self.net(x, cond, t)
-        point_energy = ((score - x) ** 2).sum(-1)
+        point_energy = ((score - x) ** 2).mean(-1)
         return point_energy
   
     def __call__(self, x, cond, t):

@@ -8,6 +8,7 @@ from .helpers import (
     cosine_beta_schedule,
     extract,
     apply_conditioning,
+    new_apply_conditioning,
     Losses,
 )
 
@@ -239,15 +240,23 @@ class GaussianDiffusion(nn.Module):
         
 
     @torch.no_grad()
-    def ddim_sample_loop(self, shape, cond, verbose=True, return_chain=False, sample_fn=default_sample_fn, **sample_kwargs):
+    def ddim_sample_loop(self, shape, cond, traj_len=200, verbose=True, return_chain=False, sample_fn=default_sample_fn, **sample_kwargs):
         
         # calculations for diffusion q(x_t | x_{t-1}) and others
         device = self.betas.device
         batch_size = shape[0]
-        x = torch.randn(shape, device=device) # x_T
-        x = apply_conditioning(x, cond, self.action_dim)
+        assert shape[0] == 1, 'batch size > 1'
+        for i in range(traj_len):    
+            if i == 0:
+                z = torch.randn(shape, device=device)
+                x = z
+            else:
+                z[0,0,:] = z[0,1,:]
+                z[0,1,:] = torch.randn(shape[-1], device=device)
+                x = torch.cat((x,z), axis = 0)
+        x = new_apply_conditioning(x, cond, self.action_dim)
         x = self.to_torch(x)
-
+        
         chain = [x] if return_chain else None
         progress = utils.Progress(self.n_timesteps) if verbose else utils.Silent()
 
@@ -256,7 +265,7 @@ class GaussianDiffusion(nn.Module):
             next_t = make_timesteps(batch_size, j+self.skip-1, device)
             # x, values = sample_fn(self, x, cond, t, next_t, **sample_kwargs)
             x = sample_fn(self, x, cond, t, next_t, **sample_kwargs)
-            x = apply_conditioning(x, cond, self.action_dim)
+            x = new_apply_conditioning(x, cond, self.action_dim)
             # progress.update({'t': i, 'vmin': values.min().item(), 'vmax': values.max().item()})
             if return_chain: chain.append(x)
         progress.stamp()

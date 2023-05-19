@@ -38,7 +38,8 @@ class Downsample1d(nn.Module):
 class Upsample1d(nn.Module):
     def __init__(self, dim):
         super().__init__()
-        self.conv = nn.ConvTranspose1d(dim, dim, 4, 2, 1)
+        # self.conv = nn.ConvTranspose1d(dim, dim, 4, 2, 1)
+        self.conv = nn.ConvTranspose1d(dim, dim, 3, 2, 1)
 
     def forward(self, x):
         return self.conv(x)
@@ -88,6 +89,14 @@ def cosine_beta_schedule(timesteps, s=0.008, dtype=torch.float32):
 def apply_conditioning(x, conditions, action_dim):
     for t, val in conditions.items():
         x[:, t, action_dim:] = val.clone()
+    return x
+
+def new_apply_conditioning(x, conditions, action_dim):
+    for t, val in conditions.items():
+        if t>0:
+            x[t, 1, action_dim:] = val.clone()
+        else:
+            x[t, 0, action_dim:] = val.clone()
     return x
 
 
