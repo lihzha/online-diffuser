@@ -14,7 +14,7 @@ class EBMDiffusionModel(nn.Module):
   
     def __call__(self, x, cond, t):
         with torch.enable_grad():
-            x.requires_grad_(False)
+            x.requires_grad_(True)
             energy = self.point_energy(x,cond,t).sum()
             gradient = torch.autograd.grad([energy], [x],create_graph=True)[0]
         return gradient

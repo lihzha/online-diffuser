@@ -55,8 +55,7 @@ class OnlineTrainer:
                     obs_tmp = samples.observations
                 # design a simple controller based on observations
                 state = self.env.state_vector().copy()
-                action = obs_tmp[:2] - state[:2] + (obs_tmp[2:] - state[2:])
-                action = action[:2]
+                action = obs_tmp[cnt,1,:2] - state[:2] + (obs_tmp[cnt,1,2:] - state[2:])
                 cnt += 1
                 next_observation, reward, terminated, info = self.env.step(action)
                 
