@@ -116,7 +116,7 @@ class OnlineTrainer:
 
             if it > 0 and it % train_freq == 0:
                 num_trainsteps = self.process_dataset()
-                self.save_buffer()
+                # self.save_buffer()
                 self.trainer.train(num_trainsteps)
 
         print(self.total_reward)

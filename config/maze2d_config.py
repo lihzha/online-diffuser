@@ -66,7 +66,7 @@ base = {
         'verbose': True,
 
         # online trainer
-        'train_freq': 100,
+        'train_freq': 50,
         'iterations': 30001,
         'traj_len': 300,
 

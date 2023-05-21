@@ -9,6 +9,7 @@ class EBMDiffusionModel(nn.Module):
 
     def point_energy(self, x, cond, t):
         score = self.net(x, cond, t)
+        assert score.shape == x.shape, 'Wrong model shape!'
         point_energy = ((score - x) ** 2).mean(-1)
         return point_energy
   
