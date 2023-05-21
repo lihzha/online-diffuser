@@ -11,7 +11,6 @@ class OnlineTrainer:
         self.policy = policy
         self.predict_type = predict_type
         self.buffer = copy.deepcopy(self.dataset.fields)
-
         self.total_reward = []
         self.total_score = []
 
@@ -36,22 +35,12 @@ class OnlineTrainer:
                 next_obs, obs, rew, terminals = [], [], [], []
             elif self.predict_type == 'action_only':
                 actions, rew, terminals = [], [], [], []
-            obs_info = self.env.reset()
-            observation = obs_info[0]['observation']
+            observation = self.env.reset()
 
             # target = self.sample_target()
-            t1=np.random.binomial(1,0.5)
-            if t1==0:
-                target = obs_info[0]['desired_goal'][:3]
-            elif t1==2:
-                target = obs_info[0]['desired_goal'][3:]
-            elif t1==1:
-                target = obs_info[0]['achieved_goal'][:3]
-            elif t1==3:
-                target = obs_info[0]['achieved_goal'][3:]
 
             cond_targ = np.zeros(self.dataset.observation_dim)
-            cond_targ[:target.shape[0]] = target
+            cond_targ[:2] = np.random.rand(2)*10-5
             # TODO: change cond according to target
             cond = {
                 self.traj_len - 1: cond_targ
@@ -65,11 +54,11 @@ class OnlineTrainer:
                     samples = self.policy(cond)
                     obs_tmp = samples.observations
                 # design a simple controller based on observations
-                # action = np.concatenate((obs_tmp[cnt, 1, :self.dataset.observation_dim-1] - obs_tmp[cnt, 0, :self.dataset.observation_dim-1],obs_tmp[cnt, 1, self.dataset.observation_dim-1:]))
-                action = obs_tmp[cnt, 1, :self.dataset.observation_dim] - obs_tmp[cnt, 0, :self.dataset.observation_dim] 
+                state = self.env.state_vector().copy()
+                action = obs_tmp[:2] - state[:2] + (obs_tmp[2:] - state[2:])
+                action = action[:2]
                 cnt += 1
-                next_observation, reward, terminated, truncated, info = self.env.step(action)
-                next_observation = next_observation['observation']
+                next_observation, reward, terminated, info = self.env.step(action)
                 
                 # cv2.imwrite('trial_rendering.png',self.env.render())
                 # if np.linalg.norm((next_observation - self.observation)[:3]) < 1e-3 and it!=0:
@@ -85,8 +74,8 @@ class OnlineTrainer:
                         f'it: {it} | maze | pos: {xy} | goal: {goal}'
                     )
                 else:
-                    xy = next_observation[:3]
-                    dist = np.linalg.norm(xy-target)
+                    xy = next_observation[:2]
+                    dist = np.linalg.norm(xy-cond_targ[:2])
                     print(
                         f'it: {it} | panda | dist: {dist}'
                     )

@@ -53,7 +53,7 @@ def main():
     dataset = dataset_config()
 
 
-    observation_dim = env.observation_space['observation'].shape[0]
+    observation_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
     if args.predict_type == 'obs_only':
