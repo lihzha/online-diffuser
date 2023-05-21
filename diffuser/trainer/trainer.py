@@ -241,7 +241,6 @@ class Trainer(object):
             # self.ema_model.ddim=True
             samples = to_np(samples.trajectories)
             # samples = to_np(samples)
-            self.render_movie(samples, i)
             ## [ n_samples x horizon x observation_dim ]
             normed_observations = samples
 
@@ -261,16 +260,14 @@ class Trainer(object):
 
             ## [ n_samples x (horizon + 1) x observation_dim ]
             observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
+            self.renderer.composite(savepath, observations)
             #### @TODO: remove block-stacking specific stuff
             # from diffusion.datasets.preprocessing import blocks_euler_to_quat, blocks_add_kuka
             # observations = blocks_add_kuka(observations)
             ####
 
             savepath = os.path.join(self.logdir, f'sample-{self.step}-{i}.png')
-            fig = plt.figure(figsize=(12, 12))
-            ax = fig.add_subplot(111,projection='3d')
-            ax.plot3D(observations[0,:,0], observations[0,:,1],observations[0,:,2])
-            plt.savefig(savepath)
+            self.renderer.composite(savepath, observations)
 
     def render_movie(self, samples, i):
 
