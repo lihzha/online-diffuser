@@ -98,7 +98,7 @@ class OnlineTrainer:
                 observation = next_observation
                 print(t)
 
-            if len(obs) >= self.traj_len:
+            if len(obs) >= 10*self.horizon:
                 if self.predict_type == 'joint':
                     episode = self.format_episode(actions, next_obs, obs, rew, terminals)
                 elif self.predict_type == 'obs_only':
@@ -231,7 +231,7 @@ class OnlineTrainer:
         self.dataset.set_fields(self.buffer)
         self.policy.normalizer = self.dataset.normalizer
         obs_energy = self.compute_buffer_energy(self.dataset)
-        sample_size = len(obs_energy)//4
+        sample_size = obs_energy.shape[0]//4
         self.energy_sampling(self.dataset.fields, sample_size, obs_energy) 
         self.dataset.indices = self.dataset.make_indices(self.dataset.fields['path_lengths'], self.dataset.horizon)
         self.trainer.create_dataloader()
@@ -305,7 +305,8 @@ class OnlineTrainer:
             obs_pair[:,1,:] = raw_obs[i,1:last_non_zero+1]
             energy = self.model.get_buffer_energy(obs_pair, self.device).sum(-1)
             energy_list.append(energy.detach().cpu().numpy().item())
-        return energy_list
+        energy_array = np.array(energy_list)
+        return energy_array
 
     def sample_target(self):
 
@@ -323,11 +324,5 @@ class OnlineTrainer:
         # self.obs_energy[self.target_set.sum(-1)==0] = 0
         # sample_idx = np.random.choice(np.prod(self.obs_energy.shape), size=1, p=self.obs_energy.flatten()/self.obs_energy.sum())[0]
         # target = self.target_set[sample_idx//self.target_set.shape[1], sample_idx-sample_idx//self.target_set.shape[1]*self.target_set.shape[1]][:2]
-        
-        # self.obs_energy[torch.div(target_ind,self.target_set.shape[1],rounding_mode='trunc'), target_ind-torch.div(target_ind,self.target_set.shape[1],rounding_mode='trunc')*self.target_set.shape[1]] = 0
-        # sample_index = np.random.choice(a=self.state_dist_flat.size, p=self.state_dist_flat/self.state_dist_flat.sum())
-        # adjusted_index = np.unravel_index(sample_index, self.neg_state_dist.shape)
-        # target = np.array(adjusted_index) / 100
-
 
         return target
