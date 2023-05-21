@@ -231,7 +231,7 @@ class OnlineTrainer:
         self.dataset.set_fields(self.buffer)
         self.policy.normalizer = self.dataset.normalizer
         obs_energy = self.compute_buffer_energy(self.dataset)
-        sample_size = obs_energy.shape[0]//4
+        sample_size = len(obs_energy)//4
         self.energy_sampling(self.dataset.fields, sample_size, obs_energy) 
         self.dataset.indices = self.dataset.make_indices(self.dataset.fields['path_lengths'], self.dataset.horizon)
         self.trainer.create_dataloader()
