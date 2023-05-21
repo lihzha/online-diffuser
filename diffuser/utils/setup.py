@@ -7,10 +7,6 @@ from tap import Tap
 import pdb
 
 from .serialization import mkdir
-from .git_utils import (
-    get_git_rev,
-    save_git_diff,
-)
 
 def set_seed(seed):
     random.seed(seed)
@@ -41,8 +37,8 @@ def lazy_fstring(template, args):
 
 class Parser(Tap):
 
-    def save(self):
-        fullpath = os.path.join(self.savepath, 'args.json')
+    def save(self, savepath):
+        fullpath = os.path.join(savepath, 'args.json')
         print(f'[ utils/setup ] Saved args to {fullpath}')
         super().save(fullpath, skip_unpicklable=True)
 
@@ -54,10 +50,8 @@ class Parser(Tap):
         self.add_extras(args)
         self.eval_fstrings(args)
         self.set_seed(args)
-        self.get_commit(args)
         self.generate_exp_name(args)
         # self.mkdir(args)  ## modify at 2023/3/31
-        self.save_diff(args)
         return args
 
     def read_config(self, args, experiment):
@@ -150,11 +144,3 @@ class Parser(Tap):
                 print(f'[ utils/setup ] Made savepath: {args.savepath}')
             self.save()
 
-    def get_commit(self, args):
-        args.commit = get_git_rev()
-
-    def save_diff(self, args):
-        try:
-            save_git_diff(os.path.join(args.savepath, 'diff.txt'))
-        except:
-            print('[ utils/setup ] WARNING: did not save git diff')

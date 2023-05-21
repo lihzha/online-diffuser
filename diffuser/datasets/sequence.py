@@ -2,66 +2,60 @@ from collections import namedtuple
 import numpy as np
 import torch
 import pdb
+import copy
 
 from .preprocessing import get_preprocess_fn
 # from .d4rl import load_environment, sequence_dataset
 from .normalization import DatasetNormalizer
 from .buffer import ReplayBuffer
-import gymnasium as gym
-import panda_gym
 
 Batch = namedtuple('Batch', 'trajectories conditions')
 ValueBatch = namedtuple('ValueBatch', 'trajectories conditions values')
 
 class SequenceDataset(torch.utils.data.Dataset):
 
-    def __init__(self, env='hopper-medium-replay', horizon=64,
-        normalizer='LimitsNormalizer', preprocess_fns=[], max_path_length=1000,
-        max_n_episodes=10000, termination_penalty=0, use_padding=True, online=False, predict_action=True):
-        self.preprocess_fn = get_preprocess_fn(preprocess_fns, env)
-        # self.env = env = load_environment(env)
-        if isinstance(env, str):
-            self.env = gym.make(env, render_mode="rgb_array")
-        else:
-            self.env = env
+    def __init__(self, env, predict_type, traj_len, horizon=64,
+        normalizer='LimitsNormalizer', max_path_length=1000,
+        max_n_episodes=10000):
+
+        self.env = env
         self.horizon = horizon
         self.action_dim = self.env.action_space.shape[0]
         self.observation_dim = self.env.observation_space['observation'].shape[0]
         self.max_path_length = max_path_length
-        self.use_padding = use_padding
         self.max_n_episodes = max_n_episodes
-        self.termination_penalty = termination_penalty
-        self.normalizer_name = normalizer
-        self.predict_action = predict_action
-        fields = ReplayBuffer(max_n_episodes, max_path_length, termination_penalty)
-        self.fields = fields
-        # if online == False:
-        #     itr = sequence_dataset(env, self.preprocess_fn)
-        #     for i, episode in enumerate(itr):
-        #         if i == max_n_episodes:
-        #             break
-        #         fields.add_path(episode)
-        #     fields.finalize()
+        self.traj_len = traj_len
 
-        #     self.normalizer = DatasetNormalizer(fields, normalizer, path_lengths=fields['path_lengths'])
-        #     self.indices = self.make_indices(fields.path_lengths, horizon)
-        #     self.path_lengths = fields.path_lengths
-        #     self.observation_dim = fields.observations.shape[-1]
-        #     self.action_dim = fields.actions.shape[-1]
-        #     self.n_episodes = fields.n_episodes
-        #     self.fields = fields
-        #     self.normalize()
+        self.normalizer_name = normalizer
+        self.predict_type = predict_type
+        fields = ReplayBuffer(max_n_episodes, max_path_length, termination_penalty=None)
+        self.fields = fields
+        self.normalizer = DatasetNormalizer(self, normalizer, predict_type)
         
         print(fields)
-        # shapes = {key: val.shape for key, val in self.fields.items()}
-        # print(f'[ datasets/mujoco ] Dataset fields: {shapes}')
 
-    def normalize(self, keys=['observations', 'actions']):
+    def set_fields(self, fields):
+        self.fields = copy.deepcopy(fields)
+        self.fields.finalize()
+        self.fields.observation_dim = self.observation_dim
+        self.fields.action_dim = self.action_dim
+        self.n_episodes = self.fields.n_episodes
+        self.path_lengths = self.fields['path_lengths']
+        self.normalize()
+        self.indices = self.make_indices(self.fields.path_lengths, self.horizon)
+
+    def normalize(self, keys=None):
         '''
             normalize fields that will be predicted by the diffusion model
         '''
-        if not self.predict_action:
+        if self.predict_type == 'obs_only':
             keys=['observations']
+        elif self.predict_type == 'action_only':
+            keys=['actions']
+        elif self.predict_type == 'joint':
+            keys=['observations', 'actions']
+        else:
+            raise NotImplementedError
         for key in keys:
             array = self.fields[key].reshape(self.n_episodes*self.max_path_length, -1)
             normed = self.normalizer(array, key)
@@ -75,8 +69,6 @@ class SequenceDataset(torch.utils.data.Dataset):
         indices = []
         for i, path_length in enumerate(path_lengths):
             max_start = min(path_length - 1, self.max_path_length - horizon)
-            if not self.use_padding:
-                max_start = min(max_start, path_length - horizon)
             if max_start != 0:
                 for start in range(max_start):
                     end = start + horizon
@@ -95,8 +87,6 @@ class SequenceDataset(torch.utils.data.Dataset):
         indices = []
         for i, path_length in enumerate(path_lengths):
             max_start = min(path_length - 1, self.max_path_length - horizon)
-            if not self.use_padding:
-                max_start = min(max_start, path_length - horizon)
             if max_start != 0:
                 for start in range(0,max_start,horizon):
                     end = start + horizon
@@ -122,12 +112,16 @@ class SequenceDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx, eps=1e-4):
         path_ind, start, end = self.indices[idx]
 
-        observations = self.fields.normed_observations[path_ind, start:end]
-        if self.predict_action:
+        if self.predict_type == 'joint':
+            observations = self.fields.normed_observations[path_ind, start:end]
             actions = self.fields.normed_actions[path_ind, start:end]
             trajectories = np.concatenate([actions, observations], axis=-1)
-        else:
+        elif self.predict_type == 'obs_only':
+            observations = self.fields.normed_observations[path_ind, start:end]
             trajectories = observations
+        elif self.predict_type == 'action_only':
+            actions = self.fields.normed_actions[path_ind, start:end]
+            trajectories = actions
         conditions = self.get_conditions(observations)
         batch = Batch(trajectories, conditions)
         return batch
@@ -136,12 +130,16 @@ class SequenceDataset(torch.utils.data.Dataset):
         first = True
         for idx in idx_set:
             path_ind, start, end = indices[idx]
-            observations = self.fields.normed_observations[path_ind, start:end]
-            if self.predict_action:
+            if self.predict_type == 'joint':
+                observations = self.fields.normed_observations[path_ind, start:end]
                 actions = self.fields.normed_actions[path_ind, start:end]
                 trajectories = np.concatenate([actions, observations], axis=-1)
-            else:
+            elif self.predict_type == 'obs_only':
+                observations = self.fields.normed_observations[path_ind, start:end]
                 trajectories = observations
+            elif self.predict_type == 'action_only':
+                actions = self.fields.normed_actions[path_ind, start:end]
+                trajectories = actions
             if first:
                 traj = trajectories[None,:]
                 first = False

@@ -99,7 +99,10 @@ def new_apply_conditioning(x, conditions, action_dim):
             x[t, 0, action_dim:] = val.clone()
     return x
 
-
+def pair_consistency(x):
+    shape = x.shape
+    x[1:,0] = x[:shape[0]-1, 1]
+    return x
 #-----------------------------------------------------------------------------#
 #---------------------------------- losses -----------------------------------#
 #-----------------------------------------------------------------------------#
@@ -136,30 +139,6 @@ class UnweightedLoss(nn.Module):
     
         return loss, {'loss':loss}
 
-class ValueLoss(nn.Module):
-    def __init__(self, *args):
-        super().__init__()
-        pass
-
-    def forward(self, pred, targ):
-        loss = self._loss(pred, targ).mean()
-
-        if len(pred) > 1:
-            corr = np.corrcoef(
-                utils.to_np(pred).squeeze(),
-                utils.to_np(targ).squeeze()
-            )[0,1]
-        else:
-            corr = np.NaN
-
-        info = {
-            'mean_pred': pred.mean(), 'mean_targ': targ.mean(),
-            'min_pred': pred.min(), 'min_targ': targ.min(),
-            'max_pred': pred.max(), 'max_targ': targ.max(),
-            'corr': corr,
-        }
-
-        return loss, info
 
 class WeightedL1(WeightedLoss):
 
@@ -171,25 +150,21 @@ class WeightedL2(WeightedLoss):
     def _loss(self, pred, targ):
         return F.mse_loss(pred, targ, reduction='none')
 
+class UnweightedL1(UnweightedLoss):
+
+    def _loss(self, pred, targ):
+        return torch.abs(pred - targ)
+
+
 class UnweightedL2(UnweightedLoss):
 
     def _loss(self, pred, targ):
         return F.mse_loss(pred, targ, reduction='none')
 
-class ValueL1(ValueLoss):
-
-    def _loss(self, pred, targ):
-        return torch.abs(pred - targ)
-
-class ValueL2(ValueLoss):
-
-    def _loss(self, pred, targ):
-        return F.mse_loss(pred, targ, reduction='none')
 
 Losses = {
     'weightedl1': WeightedL1,
     'weightedl2': WeightedL2,
-    'value_l1': ValueL1,
-    'value_l2': ValueL2,
+    'l1': UnweightedL1,
     'l2': UnweightedL2,
 }

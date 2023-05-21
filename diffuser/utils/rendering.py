@@ -8,11 +8,9 @@ import gym
 import mujoco_py as mjc
 import warnings
 import pdb
-
+from ..datasets.d4rl import load_environment
 from .arrays import to_np
-from .video import save_video, save_videos
 
-# from diffuser.datasets.d4rl import load_environment
 
 #-----------------------------------------------------------------------------#
 #------------------------------- helper structs ------------------------------#
@@ -206,7 +204,7 @@ class MuJoCoRenderer:
     def render_rollout(self, savepath, states, **video_kwargs):
         if type(states) is list: states = np.array(states)
         images = self._renders(states, partial=True)
-        save_video(savepath, images, **video_kwargs)
+        # save_video(savepath, images, **video_kwargs)
 
     def render_plan(self, savepath, actions, observations_pred, state, fps=30):
         ## [ batch_size x horizon x observation_dim ]
@@ -229,7 +227,7 @@ class MuJoCoRenderer:
 
         ## [ batch_size x horizon x H x W x C ]
         images = np.concatenate([images_pred, images_real], axis=-2)
-        save_videos(savepath, *images)
+        # save_videos(savepath, *images)
 
     def render_diffusion(self, savepath, diffusion_path, **video_kwargs):
         '''
@@ -261,7 +259,7 @@ class MuJoCoRenderer:
 
             frames.append(frame)
 
-        save_video(savepath, frames, **video_kwargs)
+        # save_video(savepath, frames, **video_kwargs)
 
     def __call__(self, *args, **kwargs):
         return self.renders(*args, **kwargs)

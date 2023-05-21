@@ -5,6 +5,9 @@
     "version": "0.2.0",
     "configurations": [
 
+    
+
+
         {
             "name": "Python",
             "type": "python",
@@ -16,13 +19,13 @@
                 "--dataset", "PandaStack-v3",
                 "--device", "cuda:3",
                 // "--logbase", "logs/pretrained"
-                "--config", "config.panda_gym"
+                "--config", "config.panda_gym_config"
             ], 
             "cwd":"/home/lihan/diffuser-maze2d",
             "env": {
                 "LD_LIBRARY_PATH": "$LD_LIBRARY_PATH:/home/lihan/.mujoco/mujoco200/bin"
               },
-            "justMyCode":true,
+            "justMyCode":true
         }
     ]
 }

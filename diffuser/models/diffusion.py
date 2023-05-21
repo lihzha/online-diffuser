@@ -9,6 +9,7 @@ from .helpers import (
     extract,
     apply_conditioning,
     new_apply_conditioning,
+    pair_consistency,
     Losses,
 )
 
@@ -46,19 +47,31 @@ def make_timesteps(batch_size, i, device):
 
 
 class GaussianDiffusion(nn.Module):
-    def __init__(self, model, horizon, observation_dim, action_dim, ddim_timesteps=2, ddim=False, 
-        n_timesteps=1000, loss_type='l1', clip_denoised=False, predict_epsilon=True,
-        action_weight=1.0, loss_discount=1.0, loss_weights=None,predict_action=False
+    def __init__(self, model, horizon, observation_dim, action_dim, predict_type, traj_len, ddim_timesteps=2, ddim=False, 
+        n_timesteps=1000, clip_denoised=False, predict_epsilon=True,
+        action_weight=1.0, loss_discount=1.0, loss_weights=None
     ):
         super().__init__()
         self.horizon = horizon
-        self.observation_dim = observation_dim
-        if predict_action:
-            self.action_dim = action_dim
-            self.transition_dim = observation_dim + action_dim
-        else:
+        self.predict_type = predict_type
+        self.traj_len = traj_len
+        if predict_type == 'obs_only':
+            self.observation_dim = observation_dim
             self.action_dim = 0
             self.transition_dim = observation_dim
+            self.loss_fn = Losses['l2']()
+        elif predict_type == 'action_only':
+            self.observation_dim = 0
+            self.action_dim = action_dim
+            self.transition_dim = action_dim
+            self.loss_fn = Losses['l2']()
+        elif predict_type == 'joint':
+            self.observation_dim = observation_dim
+            self.action_dim = action_dim
+            self.transition_dim = observation_dim + action_dim
+            loss_weights = self.get_loss_weights(action_weight, loss_discount, loss_weights)
+            self.loss_fn = Losses['weightedl2'](loss_weights, self.action_dim)
+
         self.model = model
         self.ddim_timesteps = ddim_timesteps 
         self.ddim = ddim
@@ -68,31 +81,8 @@ class GaussianDiffusion(nn.Module):
         self.n_timesteps = int(n_timesteps)
         self.clip_denoised = clip_denoised
         self.predict_epsilon = predict_epsilon
-
         self.register_buffer('betas', betas)
         self.register_buffer('alphas_cumprod', alphas_cumprod)
-        
-        if predict_action:
-        ## get loss coefficients and initialize objective
-            loss_weights = self.get_loss_weights(action_weight, loss_discount, loss_weights)
-            self.loss_fn = Losses[loss_type](loss_weights, self.action_dim)
-        else:
-            self.loss_fn = Losses[loss_type]()
-        
-        # calculate for DDIM
-        if self.ddim:
-            betas_ddim = torch.cat([torch.zeros(1).to(betas.device), betas], dim=0)
-            alphas_ddim = 1. - betas_ddim
-            alphas_cumprod_ddim = torch.cumprod(alphas_ddim, axis=0)
-            self.register_buffer('betas_ddim', betas_ddim)
-            self.register_buffer('alphas_cumprod_ddim', alphas_cumprod_ddim)
-            self.skip = self.n_timesteps // self.ddim_timesteps
-            self.seq = list(range(0, self.n_timesteps, self.skip))
-            self.next_seq = list(range(-self.skip, self.n_timesteps-self.skip, self.skip))
-            self.register_buffer('sqrt_alphas_cumprod', torch.sqrt(alphas_cumprod))
-            self.register_buffer('sqrt_one_minus_alphas_cumprod', torch.sqrt(1. - alphas_cumprod))
-        # calculations for diffusion q(x_t | x_{t-1}) and others
-    
         self.register_buffer('sqrt_alphas_cumprod', torch.sqrt(alphas_cumprod))
         self.register_buffer('sqrt_one_minus_alphas_cumprod', torch.sqrt(1. - alphas_cumprod))
         self.register_buffer('log_one_minus_alphas_cumprod', torch.log(1. - alphas_cumprod))
@@ -111,6 +101,17 @@ class GaussianDiffusion(nn.Module):
             betas * np.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
         self.register_buffer('posterior_mean_coef2',
             (1. - alphas_cumprod_prev) * np.sqrt(alphas) / (1. - alphas_cumprod))
+        if self.ddim:
+            betas_ddim = torch.cat([torch.zeros(1).to(betas.device), betas], dim=0)
+            alphas_ddim = 1. - betas_ddim
+            alphas_cumprod_ddim = torch.cumprod(alphas_ddim, axis=0)
+            self.register_buffer('betas_ddim', betas_ddim)
+            self.register_buffer('alphas_cumprod_ddim', alphas_cumprod_ddim)
+            self.skip = self.n_timesteps // self.ddim_timesteps
+            self.seq = list(range(0, self.n_timesteps, self.skip))
+            self.next_seq = list(range(-self.skip, self.n_timesteps-self.skip, self.skip))
+            self.register_buffer('sqrt_alphas_cumprod', torch.sqrt(alphas_cumprod))
+            self.register_buffer('sqrt_one_minus_alphas_cumprod', torch.sqrt(1. - alphas_cumprod))
 
     def get_loss_weights(self, action_weight, discount, weights_dict):
         '''
@@ -240,39 +241,46 @@ class GaussianDiffusion(nn.Module):
         
 
     @torch.no_grad()
-    def ddim_sample_loop(self, shape, cond, traj_len=200, verbose=True, return_chain=False, sample_fn=default_sample_fn, **sample_kwargs):
+    def ddim_sample_loop(self, shape, cond, verbose=True, return_chain=False, **sample_kwargs):
         
         # calculations for diffusion q(x_t | x_{t-1}) and others
         device = self.betas.device
-        batch_size = shape[0]
-        assert shape[0] == 1, 'batch size > 1'
-        for i in range(traj_len):    
-            if i == 0:
-                z = torch.randn(shape, device=device)
-                x = z
-            else:
-                z[0,0,:] = z[0,1,:]
-                z[0,1,:] = torch.randn(shape[-1], device=device)
-                x = torch.cat((x,z), axis = 0)
+        batch_size = len(cond[0])
+        assert batch_size == 1, 'batch size > 1'
+        x = torch.randn(shape, device=device)
+        x = pair_consistency(x)
         x = new_apply_conditioning(x, cond, self.action_dim)
         x = self.to_torch(x)
-        
         chain = [x] if return_chain else None
-        progress = utils.Progress(self.n_timesteps) if verbose else utils.Silent()
 
         for i,j in zip(reversed(self.seq), reversed(self.next_seq)):
             t = make_timesteps(batch_size, i+self.skip-1, device)
             next_t = make_timesteps(batch_size, j+self.skip-1, device)
-            # x, values = sample_fn(self, x, cond, t, next_t, **sample_kwargs)
-            x = sample_fn(self, x, cond, t, next_t, **sample_kwargs)
+            x = self.n_step_guided_ddim_sample(x, cond, t, next_t, **sample_kwargs)
             x = new_apply_conditioning(x, cond, self.action_dim)
-            # progress.update({'t': i, 'vmin': values.min().item(), 'vmax': values.max().item()})
+            x = pair_consistency(x)
             if return_chain: chain.append(x)
-        progress.stamp()
-        # x, values = sort_by_values(x, values)
+
         if return_chain: chain = torch.stack(chain, dim=1)
-        # return Sample(x, values, chain)
         return Sample(x,chain)
+    
+    @torch.no_grad()
+    def n_step_guided_ddim_sample(
+        self, x, cond, t, next_t, guide, eta=0, scale=0.001, t_stopgrad=0, n_guide_steps=1, scale_grad_by_std=False):
+
+        alpha = extract(self.alphas_cumprod_ddim, t+1, x.shape)
+        alpha_next = extract(self.alphas_cumprod_ddim, next_t+1, x.shape)
+        std_const = torch.sqrt((1-alpha_next)/(1-alpha)*(1-alpha/alpha_next))
+        model_std = eta * std_const
+
+        model_mean= self.p_mean_ddim_variance(x=x, cond=cond, t=t,next_t=next_t, sigma_t=model_std, grad=None)
+        # no noise when t == 0
+        if (model_std == 0).all():
+            return model_mean
+        else:
+            noise = torch.randn_like(x)
+            return model_mean + model_std * noise
+   
     
     def to_torch(self, x_in):
         if type(x_in) is dict:
@@ -282,19 +290,22 @@ class GaussianDiffusion(nn.Module):
         return torch.tensor(x_in, device=self.betas.device)
 
     @torch.no_grad()
-    def conditional_sample(self, cond, horizon=None, **sample_kwargs):
+    def conditional_sample(self, cond, train_ddim=None, horizon=None, **sample_kwargs):
         '''
             conditions : [ (time, state), ... ]
         '''
-        device = self.betas.device
-        batch_size = len(cond[0])
+        if not train_ddim:
+            self.sample_kwargs = sample_kwargs
         horizon = horizon or self.horizon
-        shape = (batch_size, horizon, self.transition_dim)
-        
+        shape = (self.traj_len, horizon, self.transition_dim)
+        if train_ddim:
+            return self.ddim_sample_loop(shape, cond, **self.sample_kwargs)
+        if train_ddim == False:
+            return self.p_sample_loop(shape, cond, **self.sample_kwargs)
         if self.ddim:
-            return self.ddim_sample_loop(shape, cond, **sample_kwargs)
+            return self.ddim_sample_loop(shape, cond, **self.sample_kwargs)
         else:
-            return self.p_sample_loop(shape, cond, **sample_kwargs)
+            return self.p_sample_loop(shape, cond, **self.sample_kwargs)
 
     #------------------------------------------ training ------------------------------------------#
 
@@ -314,10 +325,10 @@ class GaussianDiffusion(nn.Module):
         noise = torch.randn_like(x_start) 
 
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        x_noisy = apply_conditioning(x_noisy, cond, self.action_dim)
+        # x_noisy = apply_conditioning(x_noisy, cond, self.action_dim)
 
         x_recon = self.model(x_noisy, cond, t)
-        x_recon = apply_conditioning(x_recon, cond, self.action_dim)
+        # x_recon = apply_conditioning(x_recon, cond, self.action_dim)
 
         assert noise.shape == x_recon.shape
 
@@ -361,20 +372,3 @@ class GaussianDiffusion(nn.Module):
     def forward(self, cond, *args, **kwargs):
         return self.conditional_sample(cond, *args, **kwargs)
 
-
-class ValueDiffusion(GaussianDiffusion):
-
-    def p_losses(self, x_start, cond, target, t):
-        noise = torch.randn_like(x_start)
-
-        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        x_noisy = apply_conditioning(x_noisy, cond, self.action_dim)
-
-
-        pred = self.model(x_noisy, cond, t) # input: x_t, t(drawn from all timesteps); output:v_s0
-
-        loss, info = self.loss_fn(pred, target)
-        return loss, info
-
-    def forward(self, x, cond, t):
-        return self.model(x, cond, t)

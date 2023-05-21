@@ -1,125 +1,154 @@
 import diffuser.utils as utils
-import pdb
+from diffuser.trainer import OnlineTrainer
+import os
+import time
 
-
-#-----------------------------------------------------------------------------#
-#----------------------------------- setup -----------------------------------#
-#-----------------------------------------------------------------------------#
 
 class Parser(utils.Parser):
-    dataset: str = 'maze2d-large-v1'
+    # dataset: str = 'maze2d-large-v1'
+    dataset: str = 'PandaReach-v3'
     config: str = 'config.maze2d'
 
-args = Parser().parse_args('diffusion')
+def _make_dir(args_path, dirname=None):
+    time_now = time.gmtime()
+    _time = str(time_now[1]) + '_' + str(time_now[2])
+    # _time = '3_31'
+    if dirname == None:
+        folder = args_path + _time
+    else:
+        folder = args_path + _time + '_' + dirname
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    return folder
+
+def main():
+
+    args = Parser().parse_args('online_training')
+    dirname = args.dirname
+    diffusion_savepath = _make_dir(f'logs/{args.env}/diffusion/',dirname)
+    args.save(diffusion_savepath)
+    plan_savepath = _make_dir(f'logs/{args.env}/plans/',dirname)
+    args.save(plan_savepath)
+
+    env_config = utils.Config(
+        args.env_wrapper,
+        env=args.env,
+        render_mode=args.render_mode
+    )
+    env = env_config()
+
+    if args.predict_type not in ['obs_only', 'ation_only', 'joint']:
+        raise ValueError('Unknown predict type!')
+
+    dataset_config = utils.Config(
+        args.loader,
+        savepath=(diffusion_savepath, 'dataset_config_d.pkl'),
+        env=env,
+        traj_len=args.traj_len,
+        horizon=args.horizon,
+        normalizer=args.normalizer,
+        max_path_length=args.max_path_length,
+        predict_type = args.predict_type,
+    )
+    dataset = dataset_config()
 
 
-#-----------------------------------------------------------------------------#
-#---------------------------------- dataset ----------------------------------#
-#-----------------------------------------------------------------------------#
+    observation_dim = env.observation_space['observation'].shape[0]
+    action_dim = env.action_space.shape[0]
 
-dataset_config = utils.Config(
-    args.loader,
-    savepath=(args.savepath, 'dataset_config.pkl'),
-    env=args.dataset,
-    horizon=args.horizon,
-    normalizer=args.normalizer,
-    preprocess_fns=args.preprocess_fns,
-    use_padding=args.use_padding,
-    max_path_length=args.max_path_length,
-)
+    if args.predict_type == 'obs_only':
+        transition_dim = observation_dim
+    elif args.predict_type == 'action_only':
+        transition_dim = action_dim
+    elif args.predict_type == 'joint':
+        transition_dim = observation_dim + action_dim
 
-render_config = utils.Config(
-    args.renderer,
-    savepath=(args.savepath, 'render_config.pkl'),
-    env=args.dataset,
-)
+    model_config = utils.Config(
+        args.wrapper,
+        model=args.model_name,
+        ebm=args.ebm,
+        savepath=(diffusion_savepath, 'model_config_d.pkl'),
+        horizon=args.horizon,
+        transition_dim=transition_dim,
+        cond_dim=observation_dim,
+        dim_mults=args.dim_mults,
+        device=args.device,
+    )
+    
+    diffusion_config = utils.Config(
+        args.diffusion,
+        savepath=(diffusion_savepath, 'diffusion_config_d.pkl'),
+        horizon=args.horizon,
+        observation_dim=observation_dim,
+        action_dim=action_dim,
+        ddim = args.ddim,
+        traj_len=args.traj_len,
+        ddim_timesteps = args.ddim_timesteps,
+        n_timesteps=args.n_diffusion_steps,
+        predict_type=args.predict_type,
+        device=args.device,
+        clip_denoised=args.clip_denoised,
+        predict_epsilon=args.predict_epsilon,
+        ## loss weighting
+        action_weight=args.action_weight,
+        loss_weights=args.loss_weights,
+        loss_discount=args.loss_discount
+    )
 
-dataset = dataset_config()
-renderer = render_config()
+    trainer_config = utils.Config(
+        utils.Trainer,
+        device=args.device,
+        savepath=(diffusion_savepath, 'trainer_config_d.pkl'),
+        train_batch_size=args.train_batch_size,
+        train_lr=args.learning_rate,
+        gradient_accumulate_every=args.gradient_accumulate_every,
+        ema_decay=args.ema_decay,
+        sample_freq=args.sample_freq,
+        save_freq=args.save_freq,
+        label_freq=args.label_freq,
+        save_parallel=args.save_parallel,
+        results_folder=diffusion_savepath,
+        bucket=args.bucket,
+        n_reference=args.n_reference,
+        n_samples=args.n_samples,
+        loadpath=args.loadpath
+    )
+    model = model_config()
 
-observation_dim = dataset.observation_dim
-action_dim = dataset.action_dim
+    diffusion = diffusion_config(model)
+    trainer = trainer_config(diffusion, dataset, args.device)
 
+    
+    diffusion = trainer.ema_model
 
-#-----------------------------------------------------------------------------#
-#------------------------------ model & trainer ------------------------------#
-#-----------------------------------------------------------------------------#
-
-model_config = utils.Config(
-    args.model,
-    savepath=(args.savepath, 'model_config.pkl'),
-    horizon=args.horizon,
-    transition_dim=observation_dim + action_dim,
-    cond_dim=observation_dim,
-    dim_mults=args.dim_mults,
-    device=args.device,
-)
-
-diffusion_config = utils.Config(
-    args.diffusion,
-    savepath=(args.savepath, 'diffusion_config.pkl'),
-    horizon=args.horizon,
-    observation_dim=observation_dim,
-    action_dim=action_dim,
-    n_timesteps=args.n_diffusion_steps,
-    loss_type=args.loss_type,
-    clip_denoised=args.clip_denoised,
-    predict_epsilon=args.predict_epsilon,
-    ## loss weighting
-    action_weight=args.action_weight,
-    loss_weights=args.loss_weights,
-    loss_discount=args.loss_discount,
-    device=args.device,
-)
-
-trainer_config = utils.Config(
-    utils.Trainer,
-    savepath=(args.savepath, 'trainer_config.pkl'),
-    train_batch_size=args.batch_size,
-    train_lr=args.learning_rate,
-    gradient_accumulate_every=args.gradient_accumulate_every,
-    ema_decay=args.ema_decay,
-    sample_freq=args.sample_freq,
-    save_freq=args.save_freq,
-    label_freq=int(args.n_train_steps // args.n_saves),
-    save_parallel=args.save_parallel,
-    results_folder=args.savepath,
-    bucket=args.bucket,
-    n_reference=args.n_reference,
-    n_samples=args.n_samples,
-)
-
-#-----------------------------------------------------------------------------#
-#-------------------------------- instantiate --------------------------------#
-#-----------------------------------------------------------------------------#
-
-model = model_config()
-
-diffusion = diffusion_config(model)
-
-trainer = trainer_config(diffusion, dataset, renderer)
+    guide_config = utils.Config(args.guide, model=model, verbose=False)
+    guide = guide_config()
 
 
-#-----------------------------------------------------------------------------#
-#------------------------ test forward & backward pass -----------------------#
-#-----------------------------------------------------------------------------#
+    policy_config = utils.Config(
+        args.policy,
+        guide=guide,
+        scale=args.scale,
+        diffusion_model=diffusion,
+        normalizer=dataset.normalizer,
+        ## sampling kwargs
+        n_guide_steps=args.n_guide_steps,
+        t_stopgrad=args.t_stopgrad,
+        scale_grad_by_std=args.scale_grad_by_std,
+        eta=args.eta,
+        verbose=args.verbose,
+        predict_type=args.predict_type,
+        _device=args.device
+    )
 
-utils.report_parameters(model)
+    policy = policy_config()
 
-print('Testing forward...', end=' ', flush=True)
-batch = utils.batchify(dataset[0])
-loss, _ = diffusion.loss(*batch)
-loss.backward()
-print('✓')
+    _online_trainer = OnlineTrainer(model, trainer, env, dataset, policy, args.predict_type)
+    _online_trainer.train(args.train_freq, args.iterations)
+        
 
+if __name__ == "__main__":
+    
+    main()
 
-#-----------------------------------------------------------------------------#
-#--------------------------------- main loop ---------------------------------#
-#-----------------------------------------------------------------------------#
-
-n_epochs = int(args.n_train_steps // args.n_steps_per_epoch)
-
-for i in range(n_epochs):
-    print(f'Epoch {i} / {n_epochs} | {args.savepath}')
-    trainer.train(n_train_steps=args.n_steps_per_epoch)
 

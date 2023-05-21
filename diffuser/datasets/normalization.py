@@ -10,35 +10,36 @@ POINTMASS_KEYS = ['observations', 'actions', 'next_observations', 'deltas']
 
 class DatasetNormalizer:
 
-    def __init__(self, dataset, normalizer, path_lengths=None):
-        dataset = flatten(dataset, path_lengths)
+    def __init__(self, dataset, normalizer, predict_type, keys=None):
 
-        self.observation_dim = dataset['observations'].shape[1]
-        if 'actions' in dataset.keys():
-            self.action_dim = dataset['actions'].shape[1]
-            self.predict_action = True
-        else:
-            self.predict_action = False
+        if predict_type == 'obs_only':
+            self.observation_dim = dataset.observation_dim
+            self.action_dim = None
+            keys = ['observations']
+        elif predict_type == 'action_only':
+            self.action_dim = dataset.action_dim
+            self.observation_dim = None
+            keys = ['actions']
+        elif predict_type == 'joint':
+            self.observation_dim = dataset.observation_dim
+            self.action_dim = dataset.action_dim
+            keys = ['observations','actions']
+        
         if type(normalizer) == str:
             normalizer = eval(normalizer)
 
         self.normalizers = {}
-        for key, val in dataset.items():
-            try:
-                if key == 'actions':
-                    # val = np.array(([-1,-1],[1,1]),dtype=np.float32)
-                    val = np.array((list(np.ones(4)*1),list(np.ones(4)*(-1))),dtype=np.float32)
-                    self.normalizers[key] = normalizer(val)
-                elif key == 'observations':
-                    # val = np.array(([ 0.48975977,  0.50192666, -5.2262554 , -5.2262554 ],[ 7.213778 , 10.215629 ,  5.2262554,  5.2262554]),dtype=np.float32)
-                    val = np.array((list(np.ones(4)*1),list(np.ones(4)*(-1))),dtype=np.float32)
-                    self.normalizers[key] = normalizer(val)
-                else:
-                    pass
-            except:
-                print(f'[ utils/normalization ] Skipping {key} | {normalizer}')
-            # key: normalizer(val)
-            # for key, val in dataset.items()
+        for key in keys:  
+            if key == 'actions':
+                val = np.array((list(np.ones(self.action_dim)*(1.)),list(np.ones(self.action_dim)*(-1.))),dtype=np.float32)
+                self.normalizers[key] = normalizer(val)
+            elif key == 'observations':
+                # val = np.array(([ 0.48975977,  0.50192666, -5.2262554 , -5.2262554 ],[ 7.213778 , 10.215629 ,  5.2262554,  5.2262554]),dtype=np.float32)
+                val = np.array((list(np.ones(self.observation_dim)*1.),list(np.ones(self.observation_dim)*(-1.))),dtype=np.float32)
+                self.normalizers[key] = normalizer(val)
+            else:
+                raise NotImplementedError
+
 
     def __repr__(self):
         string = ''
