@@ -33,7 +33,6 @@ def main():
     env_config = utils.Config(
         args.env_wrapper,
         env=args.env,
-        render_mode=args.render_mode
     )
     env = env_config()
 

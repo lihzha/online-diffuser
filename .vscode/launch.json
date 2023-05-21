@@ -13,10 +13,10 @@
             "console": "integratedTerminal",
             "args":[   
                 // "--dataset","halfcheetah-medium-expert-v2",
-                "--dataset", "PandaPush-v3",
+                "--dataset", "maze2d-large-v1",
                 "--device", "cuda:3",
                 // "--logbase", "logs/pretrained"
-                "--config", "config.panda_gym_config"
+                "--config", "config.maze2d_config"
             ], 
             "cwd":"/home/lihan/diffuser-maze2d",
             "env": {
