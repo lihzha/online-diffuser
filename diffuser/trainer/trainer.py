@@ -40,6 +40,7 @@ class Trainer(object):
         diffusion_model,
         dataset,
         device,
+        renderer,
         loadpath=None,
         ema_decay=0.995,
         train_batch_size=32,
@@ -60,6 +61,7 @@ class Trainer(object):
     ):
         super().__init__()
         self.model = diffusion_model
+        self.renderer = renderer
         self.ema = EMA(ema_decay)
         self.ema_model = copy.deepcopy(self.model)
         self.update_ema_every = update_ema_every
@@ -220,7 +222,7 @@ class Trainer(object):
             renders samples from (ema) diffusion model
         '''
         n_samples = 1
-        batch_size = 1
+        batch_size = 10
         for i in range(batch_size):
 
             ## get a single datapoint
@@ -236,58 +238,23 @@ class Trainer(object):
 
             ## [ n_samples x horizon x (action_dim + observation_dim) ]
             samples = self.ema_model.conditional_sample(conditions, train_ddim=True)
-            # self.ema_model.ddim=False
-            # samples = self.ema_model.conditional_sample(conditions)
-            # self.ema_model.ddim=True
             samples = to_np(samples.trajectories)
-            # samples = to_np(samples)
-            ## [ n_samples x horizon x observation_dim ]
             normed_observations = samples
-
-            # [ 1 x 1 x observation_dim ]
-            normed_conditions = to_np(batch.conditions[0])[:,None]
-
-            # from diffusion.datasets.preprocessing import blocks_cumsum_quat
-            # observations = conditions + blocks_cumsum_quat(deltas)
-            # observations = conditions + deltas.cumsum(axis=1)
-
-            ## [ n_samples x (horizon + 1) x observation_dim ]
-
-            # normed_observations = np.concatenate([
-            #     np.repeat(normed_conditions, n_samples, axis=0),
-            #     normed_observations
-            # ], axis=1)
 
             ## [ n_samples x (horizon + 1) x observation_dim ]
             observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
-            self.renderer.composite(savepath, observations)
-            #### @TODO: remove block-stacking specific stuff
-            # from diffusion.datasets.preprocessing import blocks_euler_to_quat, blocks_add_kuka
-            # observations = blocks_add_kuka(observations)
-            ####
+            observations = observations[:,0,:][None]
+            if i == 0:
+                obs = observations
+            else:
+                obs = np.concatenate((obs,observations))
+        savepath = os.path.join(self.logdir, f'sample-{self.step}-{0}.png')
+        self.renderer.composite(savepath, obs,ncol=5)
+    
 
-            savepath = os.path.join(self.logdir, f'sample-{self.step}-{i}.png')
-            self.renderer.composite(savepath, observations)
-
-    def render_movie(self, samples, i):
-
-        savepath = os.path.join(self.logdir, f'sample-{self.step}-{i}.mp4')
-        env = self.dataset.env
-        _ = env.reset()
-        img = env.render()
-        width = img.shape[1]
-        height = img.shape[0]
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v') # FourCC is a 4-byte code used to specify the video codec.
-        video = cv2.VideoWriter(savepath, fourcc, float(30), (width, height))
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        video.write(img)
-        normed_actions = samples[:, 0, :]
-        actions = self.dataset.normalizer.unnormalize(normed_actions, 'observations')
-
-        for a in actions:
-            _ = env.step(a)
-            img = env.render()
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            video.write(img)
-
-        video.release()
+    def render_buffer(self, batchsize, obs):
+        
+        savepath = os.path.join(self.logdir, f'sample_reference-{self.step}.png')
+        obs_num = obs.shape[0]
+        idx = np.random.choice(obs_num, batchsize, replace=False)
+        self.renderer.composite(savepath, obs[idx], ncol=5)

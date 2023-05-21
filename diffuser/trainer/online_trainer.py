@@ -61,8 +61,8 @@ class OnlineTrainer:
                 next_observation, reward, terminated, info = self.env.step(action)
                 
                 # cv2.imwrite('trial_rendering.png',self.env.render())
-                # if np.linalg.norm((next_observation - self.observation)[:3]) < 1e-3 and it!=0:
-                #     break
+                if np.linalg.norm((next_observation - observation)[:2]) < 1e-3 and it!=0:
+                    break
 
                 total_reward += reward
                 # score = self.env.get_normalized_score(self.total_reward)
@@ -98,7 +98,7 @@ class OnlineTrainer:
                 observation = next_observation
                 print(t)
 
-            if len(obs) >= self.horizon:
+            if len(obs) >= self.traj_len:
                 if self.predict_type == 'joint':
                     episode = self.format_episode(actions, next_obs, obs, rew, terminals)
                 elif self.predict_type == 'obs_only':
@@ -116,7 +116,7 @@ class OnlineTrainer:
 
             if it > 0 and it % train_freq == 0:
                 num_trainsteps = self.process_dataset()
-                self.save_buffer()
+                # self.save_buffer()
                 self.trainer.train(num_trainsteps)
 
         print(self.total_reward)
@@ -235,9 +235,10 @@ class OnlineTrainer:
         self.energy_sampling(self.dataset.fields, sample_size, obs_energy) 
         self.dataset.indices = self.dataset.make_indices(self.dataset.fields['path_lengths'], self.dataset.horizon)
         self.trainer.create_dataloader()
+        self.trainer.render_buffer(10, self.dataset.fields['observations'])
         num_trainsteps = min(sample_size * 4, 4000)
         return num_trainsteps
-
+    
     def sample_data(self, fields, sample_size):
         """Sample training data from fields."""
 

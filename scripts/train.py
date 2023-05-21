@@ -36,6 +36,13 @@ def main():
     )
     env = env_config()
 
+    render_config = utils.Config(
+        args.renderer,
+        savepath=(diffusion_savepath, 'render_config.pkl'),
+        env=args.env,
+    )
+    renderer = render_config()
+
     if args.predict_type not in ['obs_only', 'ation_only', 'joint']:
         raise ValueError('Unknown predict type!')
 
@@ -111,12 +118,12 @@ def main():
         bucket=args.bucket,
         n_reference=args.n_reference,
         n_samples=args.n_samples,
-        loadpath=args.loadpath
+        loadpath=args.loadpath,
     )
     model = model_config()
 
     diffusion = diffusion_config(model)
-    trainer = trainer_config(diffusion, dataset, args.device)
+    trainer = trainer_config(diffusion, dataset, args.device, renderer)
 
     
     diffusion = trainer.ema_model

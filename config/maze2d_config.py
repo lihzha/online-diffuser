@@ -16,10 +16,13 @@ base = {
         'loader': 'datasets.GoalDataset',
         'horizon': 2,
         'normalizer': 'LimitsNormalizer',
-        'max_path_length': 400,
+        'max_path_length': 600,
         'max_n_episodes': 2000,
         'predict_type': 'obs_only',
         'device': 'cuda:1',
+
+        # renderer
+        'renderer': 'utils.Maze2dRenderer',
 
         # model
         'wrapper': 'models.model_wrapper',
@@ -65,7 +68,7 @@ base = {
         # online trainer
         'train_freq': 500,
         'iterations': 30001,
-        'traj_len': 200,
+        'traj_len': 300,
 
     },
 
