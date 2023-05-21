@@ -30,7 +30,7 @@ class SinusoidalPosEmb(nn.Module):
 class Downsample1d(nn.Module):
     def __init__(self, dim):
         super().__init__()
-        self.conv = nn.Conv1d(dim, dim, 3, 2, 1)
+        self.conv = nn.Conv1d(dim, dim, 2, 2, 1)
 
     def forward(self, x):
         return self.conv(x)
@@ -39,7 +39,7 @@ class Upsample1d(nn.Module):
     def __init__(self, dim):
         super().__init__()
         # self.conv = nn.ConvTranspose1d(dim, dim, 4, 2, 1)
-        self.conv = nn.ConvTranspose1d(dim, dim, 3, 2, 1)
+        self.conv = nn.ConvTranspose1d(dim, dim, 2, 2, 1)
 
     def forward(self, x):
         return self.conv(x)

@@ -1,5 +1,6 @@
 import copy
 import numpy as np
+import os
 
 class OnlineTrainer:
     def __init__(self, ebm_model, trainer, env, dataset, policy, predict_type):
@@ -42,7 +43,6 @@ class OnlineTrainer:
             cond_targ = np.zeros(self.dataset.observation_dim)
             self.env.set_target(target)
             cond_targ[:2] = self.env.get_target()
-            # TODO: change cond according to target
             cond = {
                 self.traj_len - 1: cond_targ
             }
@@ -116,88 +116,71 @@ class OnlineTrainer:
 
             if it > 0 and it % train_freq == 0:
                 num_trainsteps = self.process_dataset()
-                # self.save_buffer()
+                self.save_buffer()
                 self.trainer.train(num_trainsteps)
 
         print(self.total_reward)
 
-    def test(self, it):
+    def test(self):
 
-        open_loop = False
         total_reward = 0
-        self.observation = self.env.reset()
-        self.env.set_target((7,9))
-        target = self.env._target
+
+        observation = self.env.reset()
+
+        target = self.sample_target(10)
+
+        cond_targ = np.zeros(self.dataset.observation_dim)
+        self.env.set_target(target)
+        cond_targ[:2] = self.env.get_target()
         cond = {
-                self.horizon - 1: np.array([*target, 0, 0]),
-            }
-        self.rollout = [np.concatenate((target,(0.,0.))),self.observation.copy()]
-        
+            self.traj_len - 1: cond_targ
+        }
+        rollout = [observation]
+        fake_rollout = 0
         for t in range(self.max_path_length):
             
-            state = self.env.state_vector().copy()
-            if open_loop:
-                if t == 0:
-                    cond[0] = self.observation
-                    if self.args_train.predict_action:
-                        action, samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=0)
-                    else:
-                        samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=0)
-                    sequence = samples.observations[0]
-
-                if t < len(sequence) - 1:
-                    next_waypoint = sequence[t+1]
+            if t % self.traj_len == 0:
+                cond[0] = observation
+                cnt = 0
+                samples = self.policy(cond)
+                obs_tmp = samples.observations
+                if not isinstance(fake_rollout, np.ndarray):
+                    fake_rollout = obs_tmp[:,0,:]
                 else:
-                    next_waypoint = sequence[-1].copy()
-                    next_waypoint[2:] = 0
-                action = next_waypoint[:2] - state[:2] + (next_waypoint[2:] - state[2:])
-            else:
-                if t % self.horizon == 0:
-                    cond[0] = self.observation
-                    state = self.env.state_vector().copy()
-                    if self.args_train.predict_action:
-                        action, samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=0)
-                    else:
-                        samples = self.policy(cond, it, batch_size=self.args_train.batch_size, verbose=self.args_train.verbose, p_explore=0)
-                sequence = samples.observations[0]
-                try:
-                    next_waypoint = sequence[t-t//self.horizon*self.horizon+1].copy()
-                except:
-                    next_waypoint = sequence[t-t//self.horizon*self.horizon].copy()
-                action = next_waypoint[:2] - state[:2] + (next_waypoint[2:] - state[2:])
+                    fake_rollout = np.concatenate((fake_rollout, obs_tmp[:,0,:]),axis=0)
+            # design a simple controller based on observations
+            state = self.env.state_vector().copy()
+            action = obs_tmp[cnt,1,:2] - state[:2] + (obs_tmp[cnt,1,2:] - state[2:])
+            cnt += 1
+            next_observation, reward, terminated, info = self.env.step(action)
 
-            next_observation, reward, terminal, _ = self.env.step(action)
-            self.total_reward += reward
-            
-            if 'maze2d' in self.args_train.dataset:
+            total_reward += reward
+            # score = self.env.get_normalized_score(self.total_reward)
+            rollout.append(next_observation.copy())
+            if self.env.__repr__() == 'maze2d':
                 xy = next_observation[:2]
                 goal = self.env.unwrapped._target
                 print(
-                    f'maze | pos: {xy} | goal: {goal}'
+                    f'it: {t} | maze | pos: {xy} | goal: {goal}'
                 )
-            self.rollout.append(next_observation.copy())
-        
-            if t % 299 == 0:
-                fullpath = join(self.args_train.savepath, '{}_{}_test.png'.format(it,t//self.horizon))
-                renderer.composite(fullpath, samples.observations, ncol=1)
+            else:
+                xy = next_observation[:2]
+                dist = np.linalg.norm(xy-cond_targ[:2])
+                print(
+                    f'it: {t} | panda | dist: {dist}'
+                )
 
-            if t % self.args_train.vis_freq == 0 or terminal:
 
-                # renderer.render_plan(join(args.savepath, f'{t}_plan.mp4'), samples.actions, samples.observations, state)
-
-                renderer.composite(join(self.args_train.savepath, '{}_test_rollout.png'.format(it)), np.array(self.rollout)[None], ncol=1)
-
-                # renderer.render_rollout(join(args.savepath, f'rollout.mp4'), rollout, fps=80)
-            if terminal:
+            if terminated:
                 break
 
-            self.observation = next_observation
+            observation = next_observation
             print(t)
-        
-        score = self.env.get_normalized_score(self.total_reward)
-        self.score.append(score)
-        print(self.total_reward, score)
-        # np.savetxt('TestReward_{}_round'.format(it),self.total_reward)
+        rollout = np.array(rollout)[None]
+        savepath = os.path.join(self.trainer.logdir, f'rollout.png')
+        self.trainer.renderer.composite(savepath,fake_rollout[None],ncol=1)
+        savepath = os.path.join(self.trainer.logdir, f'rollout.png')
+
 
     def save_buffer(self):
         
