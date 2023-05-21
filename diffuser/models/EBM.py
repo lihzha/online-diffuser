@@ -25,3 +25,10 @@ class EBMDiffusionModel(nn.Module):
         cond = None
         energy = self.point_energy(obs, cond, t).mean(-1)
         return energy
+
+    def get_target_energy(self, target_pair, device):
+        target_pair = torch.tensor(target_pair, device=device, dtype=torch.float32)
+        t = torch.zeros(target_pair.shape[0], device=device, dtype=torch.float32)
+        cond = None
+        energy = self.point_energy(target_pair, cond, t).mean(-1)
+        return energy.detach().cpu().numpy()

@@ -255,6 +255,7 @@ class Trainer(object):
     def render_buffer(self, batchsize, obs):
         
         savepath = os.path.join(self.logdir, f'sample_reference-{self.step}.png')
-        obs_num = obs.shape[0]
+        obs_num = obs.shape[0]     
         idx = np.random.choice(obs_num, batchsize, replace=False)
+
         self.renderer.composite(savepath, obs[idx], ncol=5)

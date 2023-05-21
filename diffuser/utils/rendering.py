@@ -338,7 +338,7 @@ class Maze2dRenderer(MazeRenderer):
             
     def renders(self, observations, conditions=None, **kwargs):
         bounds = MAZE_BOUNDS[self.env_name]
-
+        observations = observations[:observations.nonzero()[0][-1],:]
         observations = observations + .5
         if len(bounds) == 2:
             _, scale = bounds

@@ -37,10 +37,10 @@ class OnlineTrainer:
                 actions, rew, terminals = [], [], [], []
             observation = self.env.reset()
 
-            # target = self.sample_target()
+            target = self.sample_target(10)
 
             cond_targ = np.zeros(self.dataset.observation_dim)
-            self.env.set_target()
+            self.env.set_target(target)
             cond_targ[:2] = self.env.get_target()
             # TODO: change cond according to target
             cond = {
@@ -308,12 +308,17 @@ class OnlineTrainer:
         energy_array = np.array(energy_list)
         return energy_array
 
-    def sample_target(self):
+    def sample_target(self, batch_size):
 
-        # sample_idx = np.random.choice(np.prod(self.obs_energy.shape), size=1, p=self.obs_energy.flatten()/self.obs_energy.sum())[0]
+        target_array, pair = self.env.sample_target(batch_size)
+        target_pair = np.zeros((batch_size, 2, self.dataset.observation_dim))
+        target_pair[:,0,:2] = target_array
+        target_pair[:,1,:2] = target_array + pair
+        energy = self.model.get_target_energy(target_pair, self.device)
+        return target_array[np.argmax(energy)]
+    
         # target = self.target_set[sample_idx//self.target_set.shape[1], sample_idx-sample_idx//self.target_set.shape[1]*self.target_set.shape[1]][:2]
         
-        target = self.env.unwrapped.task.sample_targets(self.ebm_model, self.robot, 100, self.args_train.device)
         # traj_shape = (50, self.horizon, 4)
         # target_traj = utils.arrays.sample_from_array(np.array(([-1,-1,-1,-1],[1,1,1,1]),dtype=np.float32), traj_shape=traj_shape)
         # obs = torch.tensor(target_traj, device=self.args_train.device, dtype=torch.float32)
