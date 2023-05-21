@@ -334,26 +334,6 @@ class GaussianDiffusion(nn.Module):
 
         if self.predict_epsilon:
             loss, info = self.loss_fn(x_recon, noise)
-            # scale_energy = 0
-            # scale_norm = 100
-            # # scale_kl_div = 1
-
-            # loss_eps, info_eps = self.loss_fn(x_recon, noise)
-
-            # loss_energy = energy.mean()
-            # info_energy = {'energy':scale_energy * loss_energy}
-
-            # norm_x_recon = (x_recon ** 2).mean()
-            # info_norm = {'norm_x':scale_norm * norm_x_recon}
-
-            # # kl_div = self.kl_div(x_recon, noise)    
-            # # info_kl_div = {'kl_div':scale_kl_div * kl_div}
-
-            # info_eps.update(info_energy)
-            # info_eps.update(info_norm)
-            # # info_eps.update(info_kl_div)
-
-            # loss, info = 1 * loss_eps + scale_energy * loss_energy + scale_norm * norm_x_recon, info_eps
         else:
             loss, info = self.loss_fn(x_recon, x_start)
         

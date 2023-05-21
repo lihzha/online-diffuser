@@ -19,3 +19,9 @@ class EBMDiffusionModel(nn.Module):
             gradient = torch.autograd.grad([energy], [x],create_graph=True)[0]
         return gradient
     
+    def get_buffer_energy(self, obs, device): 
+        obs = torch.tensor(obs, device=device, dtype=torch.float32)
+        t = torch.zeros(obs.shape[0], device=device, dtype=torch.float32)
+        cond = None
+        energy = self.point_energy(obs, cond, t).mean(-1)
+        return energy

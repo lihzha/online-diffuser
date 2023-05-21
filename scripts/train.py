@@ -48,6 +48,7 @@ def main():
         horizon=args.horizon,
         normalizer=args.normalizer,
         max_path_length=args.max_path_length,
+        max_n_episodes=args.max_n_episodes,
         predict_type = args.predict_type,
     )
     dataset = dataset_config()

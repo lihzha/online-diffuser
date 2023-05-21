@@ -35,7 +35,7 @@ class DatasetNormalizer:
                 self.normalizers[key] = normalizer(val)
             elif key == 'observations':
                 # val = np.array(([ 0.48975977,  0.50192666, -5.2262554 , -5.2262554 ],[ 7.213778 , 10.215629 ,  5.2262554,  5.2262554]),dtype=np.float32)
-                val = np.array((list(np.ones(self.observation_dim)*1.),list(np.ones(self.observation_dim)*(-1.))),dtype=np.float32)
+                val = np.array(([0.55,0.35,0.03],[-0.55,-0.35,0.]),dtype=np.float32)
                 self.normalizers[key] = normalizer(val)
             else:
                 raise NotImplementedError
@@ -206,6 +206,7 @@ class LimitsNormalizer(Normalizer):
         '''
         if x.max() > 1 + eps or x.min() < -1 - eps:
             # print(f'[ datasets/mujoco ] Warning: sample out of range | ({x.min():.4f}, {x.max():.4f})')
+            # raise ValueError('Wrong!')
             x = np.clip(x, -1, 1)
 
         ## [ -1, 1 ] --> [ 0, 1 ]

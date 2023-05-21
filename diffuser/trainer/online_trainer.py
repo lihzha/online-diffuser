@@ -19,6 +19,7 @@ class OnlineTrainer:
 
         self.max_path_length = dataset.max_path_length
         self.traj_len = dataset.traj_len
+        self.device = self.trainer.device
         assert self.max_path_length >= self.traj_len, 'Wrong traj_len!'
         self.horizon = dataset.horizon
 
@@ -39,19 +40,21 @@ class OnlineTrainer:
             observation = obs_info[0]['observation']
 
             # target = self.sample_target()
-            t1=2
+            t1=np.random.binomial(1,0.5)
             if t1==0:
                 target = obs_info[0]['desired_goal'][:3]
-            elif t1==1:
-                target = obs_info[0]['desired_goal'][3:]
             elif t1==2:
+                target = obs_info[0]['desired_goal'][3:]
+            elif t1==1:
                 target = obs_info[0]['achieved_goal'][:3]
             elif t1==3:
                 target = obs_info[0]['achieved_goal'][3:]
 
+            cond_targ = np.zeros(self.dataset.observation_dim)
+            cond_targ[:target.shape[0]] = target
             # TODO: change cond according to target
             cond = {
-                self.traj_len - 1: np.concatenate((target,np.random.rand(5)*2-1))
+                self.traj_len - 1: cond_targ
             }
 
             for t in range(self.max_path_length):
@@ -62,7 +65,8 @@ class OnlineTrainer:
                     samples = self.policy(cond)
                     obs_tmp = samples.observations
                 # design a simple controller based on observations
-                action = np.concatenate((obs_tmp[cnt, 1, :self.dataset.action_dim-1] - obs_tmp[cnt, 0, :self.dataset.action_dim-1],obs_tmp[cnt, 1, self.dataset.action_dim-1:])) 
+                # action = np.concatenate((obs_tmp[cnt, 1, :self.dataset.observation_dim-1] - obs_tmp[cnt, 0, :self.dataset.observation_dim-1],obs_tmp[cnt, 1, self.dataset.observation_dim-1:]))
+                action = obs_tmp[cnt, 1, :self.dataset.observation_dim] - obs_tmp[cnt, 0, :self.dataset.observation_dim] 
                 cnt += 1
                 next_observation, reward, terminated, truncated, info = self.env.step(action)
                 next_observation = next_observation['observation']
@@ -237,13 +241,11 @@ class OnlineTrainer:
 
         self.dataset.set_fields(self.buffer)
         self.policy.normalizer = self.dataset.normalizer
-        # obs_energy = self.compute_buffer_energy(dataset)
-        # buffer_size = dataset.fields['observations'].shape[0]
-        # self.energy_sampling(dataset.fields, sample_size, obs_energy)
-        # self.sample_data(dataset.fields, sample_size)    
+        obs_energy = self.compute_buffer_energy(self.dataset)
+        sample_size = obs_energy.shape[0]//4
+        self.energy_sampling(self.dataset.fields, sample_size, obs_energy) 
         self.trainer.create_dataloader()
-        # num_trainsteps = min(sample_size*5, 10000)
-        num_trainsteps = 1000
+        num_trainsteps = min(sample_size * 4, 4000)
         return num_trainsteps
 
     def sample_data(self, fields, sample_size):
@@ -285,14 +287,6 @@ class OnlineTrainer:
         # sample_index = np.random.choice(obs_dim,size=sample_size,replace=False,p=p_sample)
         sample_index = np.random.choice(obs_dim,size=sample_size,replace=False)
 
-        # p_new = min((self.sample_num[-2] + self.sample_num[-1]) * self.ep_num[-1] / self.sample_num[-1] \
-        #         / (self.ep_num[-2] + self.ep_num[-1]), 1.) 
-        # p_old = 1 - p_new
-        # p_new_array = p_new * np.ones((self.ep_num[-1])) / self.ep_num[-1] 
-        # p_old_array = p_old * np.ones((self.ep_num[-2])) / self.ep_num[-2]
-        # p_uniform = np.concatenate((p_old_array,p_new_array))
-        # print(p_new, p_old, self.ep_num, self.sample_num)        
-        # sample_index = np.random.choice(obs_dim,size=sample_size,p=p_uniform,replace=True)
         for key in _dict.keys():
             _dict[key] = _dict[key][sample_index]
         fields._add_attributes()
@@ -302,19 +296,8 @@ class OnlineTrainer:
 
         _dict = fields._dict
         obs = _dict['observations']
-        obs_dim = obs.shape[0]
-
-        # sample_index = np.random.choice(obs_dim,size=sample_size,replace=False,p=p_sample)
-        sample_index = np.random.choice(obs_dim,size=sample_size,replace=True, p=energy/energy.sum())
-
-        # p_new = min((self.sample_num[-2] + self.sample_num[-1]) * self.ep_num[-1] / self.sample_num[-1] \
-        #         / (self.ep_num[-2] + self.ep_num[-1]), 1.) 
-        # p_old = 1 - p_new
-        # p_new_array = p_new * np.ones((self.ep_num[-1])) / self.ep_num[-1] 
-        # p_old_array = p_old * np.ones((self.ep_num[-2])) / self.ep_num[-2]
-        # p_uniform = np.concatenate((p_old_array,p_new_array))
-        # print(p_new, p_old, self.ep_num, self.sample_num)        
-        # sample_index = np.random.choice(obs_dim,size=sample_size,p=p_uniform,replace=True)
+        batchsize = obs.shape[0]
+        sample_index = np.random.choice(batchsize,size=sample_size,replace=False, p=energy/energy.sum())
         for key in _dict.keys():
             _dict[key] = _dict[key][sample_index]
         fields._add_attributes() 
@@ -322,29 +305,21 @@ class OnlineTrainer:
     def compute_buffer_energy(self, dataset):
         """Randomly sample targets according to energy."""
 
-        indices = dataset.make_new_indices(dataset.fields.path_lengths, dataset.horizon)
-        sample_ind = list(range(0, indices.shape[0]))
-        obs = dataset.get_obs(sample_ind, indices)
+        raw_obs = dataset.fields['observations']
         
-        if len(obs.shape) == 2:
-            obs = obs.reshape((1,-1,dataset.observation_dim))
-        obs = torch.tensor(obs, device=self.args_train.device, dtype=torch.float32)
-        t = torch.zeros(obs.shape[0],device=obs.device)
-        cond = {0:obs.clone().detach()[:,0], dataset.horizon-1:obs.clone().detach()[:,dataset.horizon-1]}
-        energy = self.diffusion_trainer.ema_model.model.point_energy(obs, cond, t).cpu().detach().numpy().sum(-1)
-        obs_energy = np.zeros(dataset.fields['observations'].shape[0])
-        cnt = 0
-        last_path_ind = -1
-        for index in indices:
-            path_ind, _, _ = index
-            if path_ind != last_path_ind:
-                k = 1
-            last_path_ind = path_ind
-            # obs_energy[path_ind] += 1/k*(energy[cnt]-obs_energy[path_ind])
-            obs_energy[path_ind] += energy[cnt]
-            k += 1
-            cnt += 1
-        return obs_energy
+        for i in range(raw_obs.shape[0]):
+            obs_pair = np.zeros((raw_obs.shape[1]-1,2,raw_obs.shape[-1]))
+            obs_pair[:,0,:] = raw_obs[i,:raw_obs.shape[1]-1]
+            obs_pair[:,1,:] = raw_obs[i,1:raw_obs.shape[1]]
+            if i == 0:
+                obs = obs_pair
+            else:
+                obs = np.concatenate((obs,obs_pair), axis=0)
+
+        energy = self.model.get_buffer_energy(obs, self.device)
+        energy = energy.reshape((raw_obs.shape[0],-1)).mean(-1)
+        energy = energy.detach().cpu().numpy()
+        return energy
 
     def sample_target(self):
 

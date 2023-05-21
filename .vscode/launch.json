@@ -5,9 +5,6 @@
     "version": "0.2.0",
     "configurations": [
 
-    
-
-
         {
             "name": "Python",
             "type": "python",
@@ -16,7 +13,7 @@
             "console": "integratedTerminal",
             "args":[   
                 // "--dataset","halfcheetah-medium-expert-v2",
-                "--dataset", "PandaStack-v3",
+                "--dataset", "PandaPush-v3",
                 "--device", "cuda:3",
                 // "--logbase", "logs/pretrained"
                 "--config", "config.panda_gym_config"

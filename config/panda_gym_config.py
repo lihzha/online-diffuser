@@ -9,7 +9,7 @@ base = {
 
         # environment:
         'env_wrapper': 'environments.env_wrapper',
-        'env': 'PandaStack-v3',
+        'env': 'PandaPush-v3',
         'render_mode': 'rgb_array',
 
         # dataset
@@ -17,6 +17,7 @@ base = {
         'horizon': 2,
         'normalizer': 'LimitsNormalizer',
         'max_path_length': 400,
+        'max_n_episodes': 2000,
         'predict_type': 'obs_only',
         'device': 'cuda:1',
 
