@@ -297,20 +297,15 @@ class OnlineTrainer:
         """Randomly sample targets according to energy."""
 
         raw_obs = dataset.fields['observations']
-        
+        energy_list = []
         for i in range(raw_obs.shape[0]):
-            obs_pair = np.zeros((raw_obs.shape[1]-1,2,raw_obs.shape[-1]))
-            obs_pair[:,0,:] = raw_obs[i,:raw_obs.shape[1]-1]
-            obs_pair[:,1,:] = raw_obs[i,1:raw_obs.shape[1]]
-            if i == 0:
-                obs = obs_pair
-            else:
-                obs = np.concatenate((obs,obs_pair), axis=0)
-
-        energy = self.model.get_buffer_energy(obs, self.device)
-        energy = energy.reshape((raw_obs.shape[0],-1)).mean(-1)
-        energy = energy.detach().cpu().numpy()
-        return energy
+            last_non_zero = raw_obs[i,:,0].nonzero()[0][-1]
+            obs_pair = np.zeros((last_non_zero,2,raw_obs.shape[-1]))
+            obs_pair[:,0,:] = raw_obs[i,:last_non_zero]
+            obs_pair[:,1,:] = raw_obs[i,1:last_non_zero+1]
+            energy = self.model.get_buffer_energy(obs_pair, self.device).sum(-1)
+            energy_list.append(energy.detach().cpu().numpy().item())
+        return energy_list
 
     def sample_target(self):
 
