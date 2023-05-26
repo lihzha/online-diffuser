@@ -3,12 +3,15 @@ import numpy as np
 import os
 
 class OnlineTrainer:
-    def __init__(self, ebm_model, trainer, env, dataset, policy, predict_type):
+    def __init__(self, state_model, trajectory_model, trainer_traj, trainer_state, env, dataset_traj, dataset_state, policy, predict_type):
 
-        self.model = ebm_model
-        self.trainer = trainer
+        self.model = state_model
+        self.trajectory_model = trajectory_model
+        self.trainer = trainer_traj
+        self.trainer_state = trainer_state
         self.env = env
-        self.dataset = dataset
+        self.dataset = dataset_traj
+        self.dataset_state = dataset_state
         self.policy = policy
         self.predict_type = predict_type
         self.buffer = copy.deepcopy(self.dataset.fields)
@@ -17,17 +20,17 @@ class OnlineTrainer:
 
         # slightly abuse abstraction for convenience
 
-        self.max_path_length = dataset.max_path_length
-        self.traj_len = dataset.traj_len
+        self.max_path_length = dataset_traj.max_path_length
+        self.traj_len = dataset_traj.horizon
         self.device = self.trainer.device
         assert self.max_path_length >= self.traj_len, 'Wrong traj_len!'
-        self.horizon = dataset.horizon
+        self.horizon = dataset_state.horizon
 
     def train(self, train_freq, iterations):
         """Online training scenerio."""
 
         for it in range(iterations):
-
+            self.policy.diffusion_model.cnt = it
             total_reward = 0
             episode = {}
             if self.predict_type == 'joint':
@@ -37,11 +40,9 @@ class OnlineTrainer:
             elif self.predict_type == 'action_only':
                 actions, rew, terminals = [], [], [], []
             observation = self.env.reset()
-
             target = self.sample_target(10)
-
-            cond_targ = np.zeros(self.dataset.observation_dim)
             self.env.set_target(target)
+            cond_targ = np.zeros(self.dataset.observation_dim)
             cond_targ[:2] = self.env.get_target()
             cond = {
                 self.traj_len - 1: cond_targ
@@ -50,13 +51,16 @@ class OnlineTrainer:
             for t in range(self.max_path_length):
                 
                 if t % self.traj_len == 0:
-                    cond[0] = observation
+                    cond[0] = self.env.state_vector().copy()
                     cnt = 0
                     samples = self.policy(cond)
                     obs_tmp = samples.observations
+                    if obs_tmp.shape[0] == 1:
+                        obs_tmp = obs_tmp.squeeze()
                 # design a simple controller based on observations
                 state = self.env.state_vector().copy()
-                action = obs_tmp[cnt,1,:2] - state[:2] + (obs_tmp[cnt,1,2:] - state[2:])
+                # action = obs_tmp[cnt,-1,:2] - state[:2] + (obs_tmp[cnt,-1,2:] - state[2:])
+                action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
                 cnt += 1
                 next_observation, reward, terminated, info = self.env.step(action)
                 
@@ -98,13 +102,13 @@ class OnlineTrainer:
                 observation = next_observation
                 print(t)
 
-            if len(obs) >= 10*self.horizon:
+            if len(obs) != 0:
                 if self.predict_type == 'joint':
                     episode = self.format_episode(actions, next_obs, obs, rew, terminals)
                 elif self.predict_type == 'obs_only':
                     episode = self.format_episode(None, next_obs, obs, rew, terminals)
                 elif self.predict_type == 'action_only':
-                   episode = self.format_episode(actions, None, None, rew, terminals)     
+                    episode = self.format_episode(actions, None, None, rew, terminals)     
                 self.add_to_buffer(episode)     
 
             print("----------------",it,"round finished------------------")
@@ -115,77 +119,84 @@ class OnlineTrainer:
             # self.total_score.append(score) 
 
             if it > 0 and it % train_freq == 0:
-                num_trainsteps = self.process_dataset()
-                # self.save_buffer()
-                self.trainer.train(num_trainsteps)
-
+                num_trainsteps_state = self.process_dataset(self.dataset_state)
+                self.trainer_state.train(num_trainsteps_state)
+                num_trainsteps_traj = self.process_dataset(self.dataset)
+                self.save_buffer(self.horizon)
+                self.trainer.train(num_trainsteps_traj)         
         print(self.total_reward)
 
-    def test(self):
+    def test(self, epoch):
+        score_list = []
+        total_reward_list = []
+        for i in range(epoch):
+            total_reward = 0
+            observation = self.env.reset()
+            # target = self.sample_target(10)
+            cond_targ = np.zeros(self.dataset.observation_dim)
+            # self.env.set_target(target)
+            cond_targ[:2] = self.env._target
+            cond = {
+                self.traj_len - 1: cond_targ
+            }
+            rollout = [observation.copy()]
+            fake_rollout = 0
+            for t in range(self.max_path_length):
+                
+                if t % self.traj_len == 0:
+                    cond[0] = self.env.state_vector().copy()
+                    cnt = 0
+                    samples = self.policy(cond,batch_size=10)
+                    obs_tmp = samples.observations
+                    if not isinstance(fake_rollout, np.ndarray):
+                        fake_rollout = obs_tmp
+                    else:
+                        fake_rollout = np.concatenate((fake_rollout, obs_tmp),axis=1)
+                # design a simple controller based on observations
+                state = self.env.state_vector().copy()
+                action = obs_tmp[0,cnt,:2] - state[:2] + (obs_tmp[0,cnt,2:] - state[2:])
+                cnt += 1
+                next_observation, reward, terminated, info = self.env.step(action)
 
-        total_reward = 0
-
-        observation = self.env.reset()
-
-        target = self.sample_target(10)
-
-        cond_targ = np.zeros(self.dataset.observation_dim)
-        self.env.set_target(target)
-        cond_targ[:2] = self.env.get_target()
-        cond = {
-            self.traj_len - 1: cond_targ
-        }
-        rollout = [observation]
-        fake_rollout = 0
-        for t in range(self.max_path_length):
-            
-            if t % self.traj_len == 0:
-                cond[0] = observation
-                cnt = 0
-                samples = self.policy(cond)
-                obs_tmp = samples.observations
-                if not isinstance(fake_rollout, np.ndarray):
-                    fake_rollout = obs_tmp[:,0,:]
+                total_reward += reward
+                rollout.append(next_observation.copy())
+                if self.env.__repr__() == 'maze2d':
+                    xy = next_observation[:2]
+                    goal = self.env.unwrapped._target
+                    print(
+                        f'it: {t} | maze | pos: {xy} | goal: {goal}'
+                    )
                 else:
-                    fake_rollout = np.concatenate((fake_rollout, obs_tmp[:,0,:]),axis=0)
-            # design a simple controller based on observations
-            state = self.env.state_vector().copy()
-            action = obs_tmp[cnt,1,:2] - state[:2] + (obs_tmp[cnt,1,2:] - state[2:])
-            cnt += 1
-            next_observation, reward, terminated, info = self.env.step(action)
+                    xy = next_observation[:2]
+                    dist = np.linalg.norm(xy-cond_targ[:2])
+                    print(
+                        f'it: {t} | panda | dist: {dist}'
+                    )
 
-            total_reward += reward
-            # score = self.env.get_normalized_score(self.total_reward)
-            rollout.append(next_observation.copy())
-            if self.env.__repr__() == 'maze2d':
-                xy = next_observation[:2]
-                goal = self.env.unwrapped._target
-                print(
-                    f'it: {t} | maze | pos: {xy} | goal: {goal}'
-                )
-            else:
-                xy = next_observation[:2]
-                dist = np.linalg.norm(xy-cond_targ[:2])
-                print(
-                    f'it: {t} | panda | dist: {dist}'
-                )
+                if terminated:
+                    break
 
-
-            if terminated:
-                break
-
-            observation = next_observation
-            print(t)
+                observation = next_observation
+                print(t)
+            score = self.env.get_normalized_score(total_reward)
+            score_list.append(score)
+            total_reward_list.append(total_reward)
         rollout = np.array(rollout)[None]
-        savepath = os.path.join(self.trainer.logdir, f'rollout.png')
-        self.trainer.renderer.composite(savepath,fake_rollout[None],ncol=1)
-        savepath = os.path.join(self.trainer.logdir, f'rollout.png')
+        savepath = os.path.join(self.trainer.logdir, f'rollout_{i}.png')
+        self.trainer.renderer.composite(savepath,rollout,ncol=1)
+        savepath = os.path.join(self.trainer.logdir, f'fake_rollout_{i}.png')
+        self.trainer.renderer.composite(savepath,fake_rollout,ncol=5)
+        score_array = np.array(score_list)
+        total_reward_array = np.array(total_reward_list)
+        print('score_list:', score_list)
+        print('total_reward_list:', total_reward_list)
+        print('score mean and std:', score_array.mean(), score_array.std())
+        print('reward mean and std:', total_reward_array.mean(), total_reward_array.std())
 
-
-    def save_buffer(self):
+    def save_buffer(self, name):
         
         buffer = self.dataset.fields['observations']
-        np.save('buffer_vis.npy', buffer)
+        np.save(f'buffer_vis_traj_{name}.npy', buffer)
 
     def format_episode(self,actions,next_obs,obs,rew,terminals):
         """Turn generated samples into episode format."""
@@ -208,18 +219,31 @@ class OnlineTrainer:
         self.buffer.add_path(episode)
         print(self.buffer)
 
-    def process_dataset(self):
+    def process_dataset(self, dataset):
         """Normalize and preprocess the training data."""
 
-        self.dataset.set_fields(self.buffer)
-        self.policy.normalizer = self.dataset.normalizer
-        obs_energy = self.compute_buffer_energy(self.dataset)
-        sample_size = obs_energy.shape[0]//4
-        self.energy_sampling(self.dataset.fields, sample_size, obs_energy) 
-        self.dataset.indices = self.dataset.make_indices(self.dataset.fields['path_lengths'], self.dataset.horizon)
-        self.trainer.create_dataloader()
-        self.trainer.render_buffer(10, self.dataset.fields['observations'])
-        num_trainsteps = min(sample_size * 4, 4000)
+        dataset.set_fields(self.buffer)
+        self.policy.normalizer = dataset.normalizer
+        buffer_size = dataset.fields['observations'].shape[0]
+        if buffer_size < 200:
+            num_trainsteps = buffer_size*10
+        elif buffer_size < 500:
+            num_trainsteps = buffer_size*5
+        else:
+            obs_energy = self.compute_buffer_energy(dataset)
+            sample_size = dataset.max_n_episodes // 4
+            self.energy_sampling(dataset.fields, sample_size, obs_energy) 
+            num_trainsteps = 3000
+
+        if dataset == self.dataset:
+            dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.traj_len)
+            self.trainer.create_dataloader()
+            self.trainer.render_buffer(10, dataset.fields['observations'])
+        elif dataset == self.dataset_state:
+            dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.horizon)
+            self.trainer_state.create_dataloader()
+            self.trainer_state.render_buffer(10, dataset.fields['observations'])
+        # num_trainsteps = min(sample_size * 4, 4000)
         return num_trainsteps
     
     def sample_data(self, fields, sample_size):
@@ -271,7 +295,7 @@ class OnlineTrainer:
         _dict = fields._dict
         obs = _dict['observations']
         batchsize = obs.shape[0]
-        sample_index = np.random.choice(batchsize,size=sample_size,replace=False, p=energy/energy.sum())
+        sample_index = np.random.choice(batchsize,size=sample_size,replace=True, p=energy/energy.sum())
         for key in _dict.keys():
             _dict[key] = _dict[key][sample_index]
         fields._add_attributes() 
@@ -281,12 +305,10 @@ class OnlineTrainer:
 
         raw_obs = dataset.fields['observations']
         energy_list = []
+        
         for i in range(raw_obs.shape[0]):
-            last_non_zero = raw_obs[i,:,0].nonzero()[0][-1]
-            obs_pair = np.zeros((last_non_zero,2,raw_obs.shape[-1]))
-            obs_pair[:,0,:] = raw_obs[i,:last_non_zero]
-            obs_pair[:,1,:] = raw_obs[i,1:last_non_zero+1]
-            energy = self.model.get_buffer_energy(obs_pair, self.device).sum(-1)
+            obs = raw_obs[i][:,None]
+            energy = self.model.get_buffer_energy(obs, self.device).sum(-1)
             energy_list.append(energy.detach().cpu().numpy().item())
         energy_array = np.array(energy_list)
         return energy_array
@@ -294,10 +316,13 @@ class OnlineTrainer:
     def sample_target(self, batch_size):
 
         target_array, pair = self.env.sample_target(batch_size)
-        target_pair = np.zeros((batch_size, 2, self.dataset.observation_dim))
-        target_pair[:,0,:2] = target_array
-        target_pair[:,1,:2] = target_array + pair
-        energy = self.model.get_target_energy(target_pair, self.device)
+        target_state = np.zeros((batch_size, 1, self.dataset.observation_dim))
+        target_state[:,0,:2] = target_array
+        # target_pair = np.zeros((batch_size, 2, self.dataset.observation_dim))
+        # target_pair[:,0,:2] = target_array
+        # target_pair[:,1,:2] = target_array + pair
+        
+        energy = self.model.get_target_energy(target_state, self.device)
         return target_array[np.argmax(energy)]
     
         # target = self.target_set[sample_idx//self.target_set.shape[1], sample_idx-sample_idx//self.target_set.shape[1]*self.target_set.shape[1]][:2]
@@ -312,5 +337,3 @@ class OnlineTrainer:
         # self.obs_energy[self.target_set.sum(-1)==0] = 0
         # sample_idx = np.random.choice(np.prod(self.obs_energy.shape), size=1, p=self.obs_energy.flatten()/self.obs_energy.sum())[0]
         # target = self.target_set[sample_idx//self.target_set.shape[1], sample_idx-sample_idx//self.target_set.shape[1]*self.target_set.shape[1]][:2]
-
-        return target

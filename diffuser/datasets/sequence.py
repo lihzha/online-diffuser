@@ -14,7 +14,7 @@ ValueBatch = namedtuple('ValueBatch', 'trajectories conditions values')
 
 class SequenceDataset(torch.utils.data.Dataset):
 
-    def __init__(self, env, predict_type, traj_len, horizon=64,
+    def __init__(self, env, predict_type, horizon=64,
         normalizer='LimitsNormalizer', max_path_length=1000,
         max_n_episodes=10000):
 
@@ -24,7 +24,6 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.observation_dim = self.env.observation_space.shape[0]
         self.max_path_length = max_path_length
         self.max_n_episodes = max_n_episodes
-        self.traj_len = traj_len
 
         self.normalizer_name = normalizer
         self.predict_type = predict_type
@@ -36,6 +35,9 @@ class SequenceDataset(torch.utils.data.Dataset):
 
     def set_fields(self, fields):
         self.fields = copy.deepcopy(fields)
+        if self.horizon != 1:
+            self.fields.remove_short_episodes(self.horizon)
+            self.fields._count = len(self.fields['path_lengths'])
         self.fields.finalize()
         self.fields.observation_dim = self.observation_dim
         self.fields.action_dim = self.action_dim
@@ -68,14 +70,16 @@ class SequenceDataset(torch.utils.data.Dataset):
         '''
         indices = []
         for i, path_length in enumerate(path_lengths):
-            max_start = min(path_length - 1, self.max_path_length - horizon)
-            if max_start != 0:
+            max_start = min(path_length - horizon + 1, self.max_path_length - horizon + 1)
+            if max_start > 0:
                 for start in range(max_start):
                     end = start + horizon
                     indices.append((i, start, end))
-            else:
+            elif max_start == 0:
                 end = horizon
                 indices.append((i,0,end))
+            else:
+                pass
         indices = np.array(indices)
         return indices
 

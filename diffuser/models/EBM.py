@@ -1,5 +1,7 @@
 import torch.nn as nn
 import torch
+from .helpers import pair_consistency, is_pair
+
 
 class EBMDiffusionModel(nn.Module):
 
@@ -9,8 +11,10 @@ class EBMDiffusionModel(nn.Module):
 
     def point_energy(self, x, cond, t):
         score = self.net(x, cond, t)
-        assert score.shape == x.shape, 'Wrong model shape!'
-        point_energy = ((score - x) ** 2).mean(-1)
+        assert score.shape == x.shape, score.shape
+        # if is_pair(x):
+        #     score = pair_consistency(score)
+        point_energy = ((score - x) ** 2).sum(-1)
         return point_energy
   
     def __call__(self, x, cond, t):
@@ -18,6 +22,13 @@ class EBMDiffusionModel(nn.Module):
             x.requires_grad_(True)
             energy = self.point_energy(x,cond,t).sum()
             gradient = torch.autograd.grad([energy], [x],create_graph=True)[0]
+        return gradient
+    
+    def sample(self, x, cond, t):
+        with torch.enable_grad():
+            x.requires_grad_(True)
+            energy = self.point_energy(x,cond,t).sum()
+            gradient = torch.autograd.grad([energy], [x])[0]
         return gradient
     
     def get_buffer_energy(self, obs, device): 

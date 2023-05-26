@@ -38,12 +38,14 @@ class Trainer(object):
     def __init__(
         self,
         diffusion_model,
+        model,
         dataset,
         device,
         renderer,
-        loadpath=None,
+        train_batch_size,
+        results_folder,
+        loadpath,
         ema_decay=0.995,
-        train_batch_size=32,
         train_lr=2e-5,
         gradient_accumulate_every=2,
         step_start_ema=2000,
@@ -54,15 +56,15 @@ class Trainer(object):
         save_freq=1000,
         label_freq=100000,
         save_parallel=False,
-        results_folder='./results',
         n_reference=8,
         n_samples=2,
         bucket=None,
     ):
         super().__init__()
-        self.model = diffusion_model
+        self.diffusion_model = diffusion_model
         self.renderer = renderer
         self.ema = EMA(ema_decay)
+        self.model = model
         self.ema_model = copy.deepcopy(self.model)
         self.update_ema_every = update_ema_every
 
@@ -78,8 +80,8 @@ class Trainer(object):
 
         self.dataset = dataset
             
-        self.optimizer = torch.optim.Adam(diffusion_model.parameters(), lr=train_lr)
-
+        self.optimizer = torch.optim.Adam(model.parameters(), lr=train_lr)
+        
         self.logdir = results_folder
         self.bucket = bucket
         self.n_reference = n_reference
@@ -119,12 +121,15 @@ class Trainer(object):
                 batch = next(self.dataloader)
                 batch = batch_to_device(batch, device=self.device)
 
-                loss, infos = self.model.loss(*batch)
+                loss, infos = self.diffusion_model.loss(*batch)
                 loss = loss / self.gradient_accumulate_every
                 loss.backward()
-                nn.utils.clip_grad_norm_(self.model.model.parameters(), max_norm=1.)
+                # TODO: what is max_norm?
+                nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.)
+
             self.optimizer.step()
             self.optimizer.zero_grad()
+
 
             if self.step % self.update_ema_every == 0:
                 self.step_ema()
@@ -136,7 +141,6 @@ class Trainer(object):
             if self.step % self.log_freq == 0:
                 infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
                 print(f'{self.step}: {loss:8.4f} | {infos_str} | t: {timer():8.4f}')
-                
 
             if self.sample_freq and self.step % self.sample_freq == 0:
                 # self.render_reference(self.n_reference)
@@ -159,6 +163,7 @@ class Trainer(object):
         print(f'[ utils/training ] Saved model to {savepath}')
 
 
+
     def load(self, epoch):
         '''
             loads model and ema from disk
@@ -168,7 +173,6 @@ class Trainer(object):
         else:
             loadpath = os.path.join(self.logdir, f'state_{epoch}.pt')
         data = torch.load(loadpath)
-
         self.step = data['step']
         self.model.load_state_dict(data['model'])
         self.ema_model.load_state_dict(data['ema'])
@@ -221,8 +225,8 @@ class Trainer(object):
         '''
             renders samples from (ema) diffusion model
         '''
-        n_samples = 1
-        batch_size = 10
+        n_samples = 10
+        batch_size = 1
         for i in range(batch_size):
 
             ## get a single datapoint
@@ -237,25 +241,25 @@ class Trainer(object):
             )
 
             ## [ n_samples x horizon x (action_dim + observation_dim) ]
-            samples = self.ema_model.conditional_sample(conditions, train_ddim=True)
+            samples = self.diffusion_model.conditional_sample(conditions, train_ddim=True)
             samples = to_np(samples.trajectories)
             normed_observations = samples
 
             ## [ n_samples x (horizon + 1) x observation_dim ]
             observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
-            observations = observations[:,0,:][None]
-            if i == 0:
-                obs = observations
-            else:
-                obs = np.concatenate((obs,observations))
+            # observations = observations[:,0,:][None]
+            # if i == 0:
+            #     obs = observations
+            # else:
+            #     obs = np.concatenate((obs,observations))
         savepath = os.path.join(self.logdir, f'sample-{self.step}-{0}.png')
-        self.renderer.composite(savepath, obs,ncol=5)
+        self.renderer.composite(savepath, observations,ncol=5)
     
 
     def render_buffer(self, batchsize, obs):
         
         savepath = os.path.join(self.logdir, f'sample_reference-{self.step}.png')
         obs_num = obs.shape[0]     
-        idx = np.random.choice(obs_num, batchsize, replace=False)
+        idx = np.random.choice(obs_num, batchsize, replace=True)
 
         self.renderer.composite(savepath, obs[idx], ncol=5)

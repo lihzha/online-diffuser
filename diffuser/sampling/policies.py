@@ -11,8 +11,7 @@ Trajectories_obs = namedtuple('Trajectories', 'observations')
 
 class GuidedPolicy:
 
-    def __init__(self, guide, diffusion_model, normalizer, predict_type, **sample_kwargs):
-        self.guide = guide
+    def __init__(self, diffusion_model, normalizer, predict_type, **sample_kwargs):
         self.diffusion_model = diffusion_model
         self.normalizer = normalizer
         self.action_dim = diffusion_model.action_dim
@@ -25,7 +24,7 @@ class GuidedPolicy:
         conditions = self._format_conditions(conditions, batch_size)
 
         ## run reverse diffusion process
-        samples = self.diffusion_model(conditions,  verbose=verbose, guide=self.guide, **self.sample_kwargs)
+        samples = self.diffusion_model(conditions,  verbose=verbose, **self.sample_kwargs)
         # samples = self.diffusion_model(conditions)
         trajectories = utils.to_np(samples.trajectories)
         # trajectories = samples.detach().cpu().numpy()

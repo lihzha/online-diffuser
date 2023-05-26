@@ -5,7 +5,7 @@ base = {
 
     'online_training': {
 
-        'dirname':'maze2d',
+        'dirname':'one_model',
 
         # environment:
         'env_wrapper': 'environments.d4rl_env_wrapper',
@@ -14,12 +14,12 @@ base = {
 
         # dataset
         'loader': 'datasets.GoalDataset',
-        'horizon': 2,
+        'horizon': 1,
         'normalizer': 'LimitsNormalizer',
         'max_path_length': 600,
-        'max_n_episodes': 2000,
+        'max_n_episodes': 2500,
         'predict_type': 'obs_only',
-        'device': 'cuda:1',
+        'device': 'cuda:3',
 
         # renderer
         'renderer': 'utils.Maze2dRenderer',
@@ -27,14 +27,15 @@ base = {
         # model
         'wrapper': 'models.model_wrapper',
         'model_name': 'TemporalUnet',
-        'dim_mults': (1, 4, 8),
+        'dim_mults_trajectory': (1, 4, 8),
+        'dim_mults_pair': (1, 4, 8),
         'ebm': True,
 
         # diffusion
         'diffusion': 'models.GaussianDiffusion',
         'ddim': True,
         'ddim_timesteps': 8,
-        'n_diffusion_steps': 128*2,
+        'n_diffusion_steps': 128,
         'clip_denoised': True,
         'predict_epsilon': True,
         'action_weight': 1,
@@ -42,7 +43,8 @@ base = {
         'loss_discount': 1,
 
         # trainer
-        'train_batch_size': 256,
+        'traj_batchsize': 64,
+        'state_batchsize': 1024,
         'learning_rate': 2e-4,
         'gradient_accumulate_every': 2,
         'ema_decay': 0.995,
@@ -53,20 +55,21 @@ base = {
         'bucket': None,
         'n_reference': 50,
         'n_samples': 1,
-        'loadpath': None,
+        'loadpath_traj': None,
+        'loadpath_state': None,
 
         # plan
-        'guide': 'sampling.EBM_DensityGuide',
+        # 'guide': 'sampling.EBM_DensityGuide',
         'policy': 'sampling.GuidedPolicy',
         'scale': 0.001, # grad coef in guide
         'n_guide_steps': 1,
         't_stopgrad': 2,
         'scale_grad_by_std': False,
-        'eta': 0.1,
+        'eta': 0.0,
         'verbose': True,
 
         # online trainer
-        'train_freq': 50,
+        'train_freq': 500,
         'iterations': 30001,
         'traj_len': 300,
 

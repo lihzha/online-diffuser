@@ -118,8 +118,8 @@ def main():
         n_reference=args.n_reference,
         n_samples=args.n_samples,
     )
-
     state_model = model_config(dim_mults=args.dim_mults_pair, horizon=args.horizon)
+
     trajectory_model = model_config(dim_mults=args.dim_mults_trajectory, horizon=args.traj_len)
 
     diffusion = diffusion_config(model=trajectory_model, state_model=state_model)
@@ -128,28 +128,44 @@ def main():
                                    args.state_batchsize, diffusion_savepath+'/state', args.loadpath_state)
     trainer_traj = trainer_config(diffusion, trajectory_model, dataset_traj, args.device, renderer, 
                                   args.traj_batchsize, diffusion_savepath+'/traj', args.loadpath_traj)
- 
+    state_model = trainer_state.ema_model
     diffusion = trainer_traj.diffusion_model
 
-    policy_config = utils.Config(
-        args.policy,
-        scale=args.scale,
-        diffusion_model=diffusion,
-        normalizer=dataset_traj.normalizer,
-        ## sampling kwargs
-        n_guide_steps=args.n_guide_steps,
-        t_stopgrad=args.t_stopgrad,
-        scale_grad_by_std=args.scale_grad_by_std,
-        eta=args.eta,
-        verbose=args.verbose,
-        predict_type=args.predict_type,
-        _device=args.device
-    )
+    
 
-    policy = policy_config()
+    import numpy as np
+    import torch
+    side_x = np.linspace(0.5,7.2,68)
+    side_y = np.linspace(0.5,10.2,98)
+    X, Y = np.meshgrid(side_x, side_y)
+    Z = np.zeros((68,98))
+    first=True
+    for i in side_x:
+        for j in side_y:
+            if first:
+                m = np.array([i,j]).reshape((1,2))
+                first=False
+            else:
+                m = np.concatenate((m,np.array([i,j]).reshape((1,2))),axis=0)
+    m = np.concatenate((m, np.zeros_like(m)),axis=1)
+    m = m[:,None]
+    m = dataset_state.normalizer.normalize(m, 'observations')
+    x = torch.tensor(m, dtype=torch.float32, device=args.device)
+    noise_num = 10
+    for _ in range(noise_num):
+        for t in range(0, 5):
+            t = torch.ones(13328//2, dtype=torch.long, device=args.device) * t
+            x_noisy = diffusion.q_sample(x_start=x, t=t)
+            energy_ij = state_model.point_energy(x_noisy, None, t)
+            energy_ij = energy_ij.squeeze().detach().cpu().numpy()
+            energy_ij = energy_ij.reshape((68,98))
+            Z += energy_ij
+    Z /= noise_num
+    import matplotlib.pyplot as plt
+    np.save('density.npy', Z)
+    plt.pcolormesh(X, Y, Z.T, shading='auto')
+    plt.savefig('density_sum2.png')
 
-    _online_trainer = OnlineTrainer(state_model, trajectory_model, trainer_traj, trainer_state, env, dataset_traj, dataset_state, policy, args.predict_type)
-    _online_trainer.train(args.train_freq, args.iterations)
         
 
 if __name__ == "__main__":

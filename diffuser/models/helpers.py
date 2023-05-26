@@ -30,7 +30,7 @@ class SinusoidalPosEmb(nn.Module):
 class Downsample1d(nn.Module):
     def __init__(self, dim):
         super().__init__()
-        self.conv = nn.Conv1d(dim, dim, 2, 2, 1)
+        self.conv = nn.Conv1d(dim, dim, 3, 2, 1)
 
     def forward(self, x):
         return self.conv(x)
@@ -39,7 +39,7 @@ class Upsample1d(nn.Module):
     def __init__(self, dim):
         super().__init__()
         # self.conv = nn.ConvTranspose1d(dim, dim, 4, 2, 1)
-        self.conv = nn.ConvTranspose1d(dim, dim, 2, 2, 1)
+        self.conv = nn.ConvTranspose1d(dim, dim, 4, 2, 1)
 
     def forward(self, x):
         return self.conv(x)
@@ -101,8 +101,48 @@ def new_apply_conditioning(x, conditions, action_dim):
 
 def pair_consistency(x):
     shape = x.shape
-    x[1:,0] = x[:shape[0]-1, 1]
+    x[1:,0] = x[:shape[0]-1, -1]
     return x
+
+@torch.no_grad()
+def is_pair(x):
+    shape = x.shape
+    assert len(shape) == 3
+    if torch.norm(x[1:,0]-x[:shape[0]-1, -1]) < 1e-4:
+        return True
+    else:
+        return False
+    
+def form_pairs(x):
+    shape = x.shape
+    if shape[0] == 1:
+        new_x = torch.cat((x[0,:shape[1]-1,:][:,None],x[0,1:shape[1],:][:,None]),dim=1)
+        new_x.requires_grad_(x.requires_grad)
+    else:
+        traj_len = x.shape[1]
+        new_x = x.reshape((-1,shape[-1]))
+        shape = new_x.shape
+        new_x = torch.cat((new_x[:shape[0]-1,:][:,None],new_x[1:shape[0],:][:,None]),dim=1)
+        idx = torch.linspace(0, new_x.shape[0]-1, (new_x.shape[0]), dtype=torch.int)
+        idx = idx[idx%traj_len!=traj_len-1]
+        new_x = new_x[idx]
+        new_x.requires_grad_(x.requires_grad)
+    return new_x
+
+def pair_to_traj(x, traj_len):
+    new_x = x[:,0,:].reshape((-1,traj_len-1,x.shape[-1]))
+    idx = torch.linspace(0,x.shape[0]-1,x.shape[0],dtype=torch.int)
+    idx = idx[idx % (traj_len-1) == (traj_len-2)]
+    last = x[idx,1,:][:,None]
+    assert len(last.shape)==3 and last.shape[1]==1
+    return torch.cat((new_x,last),dim=1)
+
+def get_state_from_traj(x):
+    return x.reshape((-1, x.shape[-1]))[:,None]
+
+def get_traj_from_state(x, traj_len):
+    return x.reshape((-1, traj_len, x.shape[-1]))
+
 #-----------------------------------------------------------------------------#
 #---------------------------------- losses -----------------------------------#
 #-----------------------------------------------------------------------------#

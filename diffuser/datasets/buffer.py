@@ -127,3 +127,10 @@ class ReplayBuffer:
         for i in range(data.shape[0]):
            self._dict['path_lengths'][i] = self._dict['observations'][i,:,0].nonzero()[0][-1] + 1
         print(self)
+
+    def remove_short_episodes(self, max_path_length):
+
+        path_length = self._dict['path_lengths']
+        mask = path_length >= max_path_length
+        for key in self.keys + ['path_lengths']:
+            self._dict[key] = self._dict[key][mask]
