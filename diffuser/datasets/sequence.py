@@ -63,6 +63,7 @@ class SequenceDataset(torch.utils.data.Dataset):
             normed = self.normalizer(array, key)
             self.fields[f'normed_{key}'] = normed.reshape(self.n_episodes, self.max_path_length, -1)
 
+
     def make_indices(self, path_lengths, horizon):
         '''
             makes indices for sampling from dataset;
@@ -71,6 +72,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         indices = []
         for i, path_length in enumerate(path_lengths):
             max_start = min(path_length - horizon + 1, self.max_path_length - horizon + 1)
+            if max_start < 0:
+                max_start = 0
             if max_start > 0:
                 for start in range(max_start):
                     end = start + horizon

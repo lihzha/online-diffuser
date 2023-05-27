@@ -252,6 +252,7 @@ class Trainer(object):
             #     obs = observations
             # else:
             #     obs = np.concatenate((obs,observations))
+        observations = observations.reshape((n_samples, 640, 4))
         savepath = os.path.join(self.logdir, f'sample-{self.step}-{0}.png')
         self.renderer.composite(savepath, observations,ncol=5)
     

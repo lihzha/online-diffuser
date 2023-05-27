@@ -5,7 +5,7 @@ base = {
 
     'online_training': {
 
-        'dirname':'one_model',
+        'dirname':'compose_4_160',
 
         # environment:
         'env_wrapper': 'environments.d4rl_env_wrapper',
@@ -16,10 +16,10 @@ base = {
         'loader': 'datasets.GoalDataset',
         'horizon': 1,
         'normalizer': 'LimitsNormalizer',
-        'max_path_length': 600,
-        'max_n_episodes': 2500,
+        'max_path_length': 640,
+        'max_n_episodes': 1000,
         'predict_type': 'obs_only',
-        'device': 'cuda:3',
+        'device': 'cuda:2',
 
         # renderer
         'renderer': 'utils.Maze2dRenderer',
@@ -43,7 +43,7 @@ base = {
         'loss_discount': 1,
 
         # trainer
-        'traj_batchsize': 64,
+        'traj_batchsize': 32,
         'state_batchsize': 1024,
         'learning_rate': 2e-4,
         'gradient_accumulate_every': 2,
@@ -71,7 +71,7 @@ base = {
         # online trainer
         'train_freq': 500,
         'iterations': 30001,
-        'traj_len': 300,
+        'traj_len': 160,
 
     },
 

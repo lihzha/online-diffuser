@@ -16,6 +16,8 @@ from .helpers import (
     get_traj_from_state,
     Losses,
 )
+import warnings
+warnings.filterwarnings(action='ignore', category=UserWarning)
 
 # Sample = namedtuple('Sample', 'trajectories values chains')
 Sample = namedtuple('Sample', 'trajectories chains')
@@ -91,9 +93,10 @@ class GaussianDiffusion(nn.Module):
 
         step_ratio = n_timesteps // ddim_timesteps
         timesteps = (np.arange(0, ddim_timesteps) * step_ratio).round()[::-1].copy().astype(np.int64)
-        prev_timesteps = (timesteps - step_ratio).copy()[:-2].astype(np.int64)
-        timesteps = np.insert(timesteps,-1,np.linspace(state_noise_start_t, 1, state_noise_start_t))
-        prev_timesteps = np.append(prev_timesteps,np.linspace(state_noise_start_t, -1, state_noise_start_t+2)).astype(np.int64)
+        prev_timesteps = (timesteps - step_ratio).copy().astype(np.int64)
+        # prev_timesteps = (timesteps - step_ratio).copy()[:-2].astype(np.int64)
+        # timesteps = np.insert(timesteps,-1,np.linspace(state_noise_start_t, 1, state_noise_start_t))
+        # prev_timesteps = np.append(prev_timesteps,np.linspace(state_noise_start_t, -1, state_noise_start_t+2)).astype(np.int64)
         self.timesteps = torch.from_numpy(timesteps)
         self.prev_timesteps = torch.from_numpy(prev_timesteps)
         self.step_ratio = step_ratio
@@ -211,7 +214,6 @@ class GaussianDiffusion(nn.Module):
 
     def q_ddim_posterior(self, x_start, x_t, t, prev_t, sigma_t):
 
-
         alpha_prod_t_prev = extract(self.alphas_cumprod, prev_t, x_t.shape) if (prev_t >= 0).any() else self.final_alpha_cumprod
         alpha_prod_t = extract(self.alphas_cumprod, t, x_t.shape)
         epsilon = (x_t - torch.sqrt(alpha_prod_t) * x_start) / torch.sqrt(1-alpha_prod_t)
@@ -225,28 +227,29 @@ class GaussianDiffusion(nn.Module):
             x_recon = self.predict_start_from_noise(x_t, t=t, noise=grad)
         else:
             noise_traj = self.model.sample(x_t,cond,t)
-            if self.cnt >=10e6:
-                start_cond = (t<=self.state_noise_start_t).any() or (t>=self.n_timesteps-self.state_noise_start_t-30).any()
-            else:
-                start_cond = False
-            if start_cond:
-                x_state = get_state_from_traj(x_t)
-                t_state = t.repeat(self.traj_len)
-                noise_state = self.state_model.sample(x_state, cond, t_state)
-                noise_state = get_traj_from_state(x_t, self.traj_len)
-                assert noise_state.shape == noise_traj.shape
+            # if self.cnt >=10e6:
+            #     start_cond = (t<=self.state_noise_start_t).any() or (t>=self.n_timesteps-self.state_noise_start_t-30).any()
+            # else:
+            #     start_cond = False
+            # if start_cond:
+            #     x_state = get_state_from_traj(x_t)
+            #     t_state = t.repeat(self.traj_len)
+            #     noise_state = self.state_model.sample(x_state, cond, t_state)
+            #     noise_state = get_traj_from_state(x_t, self.traj_len)
+            #     assert noise_state.shape == noise_traj.shape
 
-                x_recon_1 = self.predict_start_from_noise(x_t, t=t, noise=noise_traj)
-                x_recon_2 = self.predict_start_from_noise(x_t, t=t, noise=noise_state)
-                if self.clip_denoised:
-                    x_recon_1.clamp_(-1., 1.)
-                    x_recon_2.clamp_(-1., 1.)
-                else:
-                    assert RuntimeError()
-                x_recon = (1-weight_traj) * x_recon_2 + weight_traj * x_recon_1
-            else:
-                noise = 1.0 * noise_traj
-                x_recon = self.predict_start_from_noise(x_t, t=t, noise=noise)
+            #     x_recon_1 = self.predict_start_from_noise(x_t, t=t, noise=noise_traj)
+            #     x_recon_2 = self.predict_start_from_noise(x_t, t=t, noise=noise_state)
+            #     if self.clip_denoised:
+            #         x_recon_1.clamp_(-1., 1.)
+            #         x_recon_2.clamp_(-1., 1.)
+            #     else:
+            #         assert RuntimeError()
+            #     x_recon = (1-weight_traj) * x_recon_2 + weight_traj * x_recon_1
+            # else:
+            noise = 1.0 * noise_traj
+            x_recon = self.predict_start_from_noise(x_t, t=t, noise=noise)
+            x_recon.clamp_(-1., 1.)
 
         model_mean = self.q_ddim_posterior(x_start=x_recon, x_t=x_t, t=t, prev_t=prev_t, sigma_t=sigma_t)
         return model_mean
@@ -280,8 +283,28 @@ class GaussianDiffusion(nn.Module):
         device = self.betas.device
         batch_size = shape[0]
         x = torch.randn(shape, device=device)
+        if batch_size == 1:
+            x = torch.randn((4, 160, 4), device=device)
+            x[1,0] = x[0,-1]
+            x[2,0] = x[1,-1]
+            x[3,0] = x[2,-1]
+            x[-1,-1] = cond[159]
+            x[0,0] = cond[0]
+            batch_size = 4
+        else:
+            x = torch.randn((batch_size,4, 160, 4), device=device)
+            x[:,1,0] = x[:,0,-1]
+            x[:,2,0] = x[:,1,-1]
+            x[:,3,0] = x[:,2,-1]
+            try:
+                x[:,-1,-1] = cond[159]
+            except:
+                pass
+            x[:,0,0] = cond[0]
+            batch_size = 4*batch_size
+            x = x.reshape((batch_size, 160, 4))
         # x = pair_consistency(x)
-        x = apply_conditioning(x, cond, self.action_dim)
+        # x = apply_conditioning(x, cond, self.action_dim)
         # x = new_apply_conditioning(x, cond, self.action_dim)
         x = self.to_torch(x)
         chain = [x] if return_chain else None
@@ -290,7 +313,24 @@ class GaussianDiffusion(nn.Module):
             prev_t = make_timesteps(batch_size, prev_t, device)
             x = self.n_step_guided_ddim_sample(x, cond, t, prev_t, **sample_kwargs)
             # x = new_apply_conditioning(x, cond, self.action_dim)
-            x = apply_conditioning(x, cond, self.action_dim)
+            if batch_size == 4:
+                x[1,0] = x[0,-1]
+                x[2,0] = x[1,-1]
+                x[3,0] = x[2,-1]
+                x[-1,-1] = cond[159]
+                x[0,0] = cond[0]
+            else:
+                x = x.reshape((-1,4,160,4))
+                x[:,1,0] = x[:,0,-1]
+                x[:,2,0] = x[:,1,-1]
+                x[:,3,0] = x[:,2,-1]
+                try:
+                    x[:,-1,-1] = cond[159]
+                except:
+                    pass
+                x[:,0,0] = cond[0]
+                x = x.reshape((batch_size, 160, 4))
+            # x = apply_conditioning(x, cond, self.action_dim)
             # x = pair_consistency(x)
             if return_chain: chain.append(x)
         if return_chain: chain = torch.stack(chain, dim=1)
@@ -300,6 +340,8 @@ class GaussianDiffusion(nn.Module):
     def n_step_guided_ddim_sample(
         self, x, cond, t, prev_t, eta=0, scale=0.001, t_stopgrad=0, n_guide_steps=1, scale_grad_by_std=False):
 
+        if self.cnt <= 500:
+            eta = 1
         alpha_prod_t = extract(self.alphas_cumprod, t, x.shape)
         alpha_prod_t_prev = extract(self.alphas_cumprod, prev_t, x.shape) if (prev_t >= 0).any() else torch.ones_like(alpha_prod_t) * self.final_alpha_cumprod
         beta_prod_t = 1 - alpha_prod_t
@@ -380,6 +422,7 @@ class GaussianDiffusion(nn.Module):
     def p_losses(self, x_start, cond, t):
 
         # Train trajectory model
+
         noise = torch.randn_like(x_start) 
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         if x_noisy.shape[1] != 1:

@@ -58,7 +58,6 @@ class TemporalUnet(nn.Module):
         self.dims = dims
         in_out = list(zip(dims[:-1], dims[1:]))
         print(f'[ models/temporal ] Channel dimensions: {in_out}')
-
         time_dim = dim
         self.time_mlp = nn.Sequential(
             SinusoidalPosEmb(dim),
@@ -89,7 +88,6 @@ class TemporalUnet(nn.Module):
                 ]))
                 if not is_last:
                     horizon = horizon // 2
-
 
         mid_dim = dims[-1]
         self.mid_block1 = ResidualTemporalBlock(mid_dim, mid_dim, embed_dim=time_dim, horizon=horizon)
@@ -124,6 +122,7 @@ class TemporalUnet(nn.Module):
         '''
 
         x = einops.rearrange(x, 'b h t -> b t h')
+        # x = x.reshape((x.shape[0],x.shape[2],x.shape[1]))
 
         t = self.time_mlp(time)
         h = []

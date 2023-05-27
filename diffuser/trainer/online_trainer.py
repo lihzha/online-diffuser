@@ -28,10 +28,9 @@ class OnlineTrainer:
 
     def train(self, train_freq, iterations):
         """Online training scenerio."""
-
+        total_reward = 0
         for it in range(iterations):
             self.policy.diffusion_model.cnt = it
-            total_reward = 0
             episode = {}
             if self.predict_type == 'joint':
                 actions, next_obs, obs, rew, terminals = [], [], [], [], []
@@ -40,23 +39,30 @@ class OnlineTrainer:
             elif self.predict_type == 'action_only':
                 actions, rew, terminals = [], [], [], []
             observation = self.env.reset()
-            target = self.sample_target(10)
+            if total_reward != 0 or it % 500 == 0:
+                target = self.sample_target(20)
+                total_reward = 0
+            else:
+                pass
             self.env.set_target(target)
+            # cond_pos = np.random.randint(self.traj_len//2, self.traj_len-1)
             cond_targ = np.zeros(self.dataset.observation_dim)
             cond_targ[:2] = self.env.get_target()
             cond = {
-                self.traj_len - 1: cond_targ
+                self.traj_len-1: cond_targ
             }
 
             for t in range(self.max_path_length):
                 
-                if t % self.traj_len == 0:
+                if t == 0:
                     cond[0] = self.env.state_vector().copy()
                     cnt = 0
                     samples = self.policy(cond)
                     obs_tmp = samples.observations
                     if obs_tmp.shape[0] == 1:
                         obs_tmp = obs_tmp.squeeze()
+                    elif obs_tmp.shape[0] == 4:
+                        obs_tmp = obs_tmp.reshape((-1, 4))
                 # design a simple controller based on observations
                 state = self.env.state_vector().copy()
                 # action = obs_tmp[cnt,-1,:2] - state[:2] + (obs_tmp[cnt,-1,2:] - state[2:])
@@ -99,7 +105,7 @@ class OnlineTrainer:
                 if terminated:
                     break
 
-                observation = next_observation
+                observation = next_observation.copy()
                 print(t)
 
             if len(obs) != 0:
@@ -118,12 +124,13 @@ class OnlineTrainer:
             print('Non-zero rewards is:', len(np.nonzero(self.total_reward)[0])/len(self.total_reward)*100, "%")
             # self.total_score.append(score) 
 
-            if it > 0 and it % train_freq == 0:
-                num_trainsteps_state = self.process_dataset(self.dataset_state)
-                self.trainer_state.train(num_trainsteps_state)
+            if it > 0 and it % train_freq == 0: 
                 num_trainsteps_traj = self.process_dataset(self.dataset)
-                self.save_buffer(self.horizon)
-                self.trainer.train(num_trainsteps_traj)         
+                self.save_buffer(self.trainer.logdir)
+                self.trainer.train(num_trainsteps_traj)     
+                num_trainsteps_state = self.process_dataset(self.dataset_state)
+                self.trainer_state.train(num_trainsteps_state//2)            
+    
         print(self.total_reward)
 
     def test(self, epoch):
@@ -193,10 +200,10 @@ class OnlineTrainer:
         print('score mean and std:', score_array.mean(), score_array.std())
         print('reward mean and std:', total_reward_array.mean(), total_reward_array.std())
 
-    def save_buffer(self, name):
+    def save_buffer(self, path):
         
         buffer = self.dataset.fields['observations']
-        np.save(f'buffer_vis_traj_{name}.npy', buffer)
+        np.save(path+'/buffer_vis_traj.npy', buffer)
 
     def format_episode(self,actions,next_obs,obs,rew,terminals):
         """Turn generated samples into episode format."""
@@ -224,16 +231,12 @@ class OnlineTrainer:
 
         dataset.set_fields(self.buffer)
         self.policy.normalizer = dataset.normalizer
+
+        obs_energy = self.compute_buffer_energy(dataset)
         buffer_size = dataset.fields['observations'].shape[0]
-        if buffer_size < 200:
-            num_trainsteps = buffer_size*10
-        elif buffer_size < 500:
-            num_trainsteps = buffer_size*5
-        else:
-            obs_energy = self.compute_buffer_energy(dataset)
-            sample_size = dataset.max_n_episodes // 4
-            self.energy_sampling(dataset.fields, sample_size, obs_energy) 
-            num_trainsteps = 3000
+        sample_size = buffer_size // 4
+        self.energy_sampling(dataset.fields, sample_size, obs_energy) 
+        num_trainsteps = sample_size * 10
 
         if dataset == self.dataset:
             dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.traj_len)

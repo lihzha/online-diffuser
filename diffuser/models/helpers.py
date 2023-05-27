@@ -55,12 +55,21 @@ class Conv1dBlock(nn.Module):
         self.block = nn.Sequential(
             nn.Conv1d(inp_channels, out_channels, kernel_size, padding=kernel_size // 2),
             Rearrange('batch channels horizon -> batch channels 1 horizon'),
+            
             nn.GroupNorm(n_groups, out_channels),
             Rearrange('batch channels 1 horizon -> batch channels horizon'),
-            nn.Mish(),
+            # nn.Mish(),
+            nn.SiLU(),
         )
+        # self.block1 = nn.Conv1d(inp_channels, out_channels, kernel_size, padding=kernel_size // 2)
+        # self.norm = nn.GroupNorm(n_groups, out_channels)
+        # self.silu = nn.SiLU()
 
     def forward(self, x):
+        # x = self.block1(x)[:,:,None,:]
+        # x = self.norm(x).squeeze(2)
+        # x = self.silu(x)
+        # return x
         return self.block(x)
 
 

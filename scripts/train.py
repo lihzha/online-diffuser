@@ -7,7 +7,7 @@ import time
 class Parser(utils.Parser):
     # dataset: str = 'maze2d-large-v1'
     dataset: str = 'PandaReach-v3'
-    config: str = 'config.maze2d'
+    config: str = 'config.maze2d_config'
 
 def _make_dir(args_path, dirname=None):
     time_now = time.gmtime()

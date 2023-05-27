@@ -78,6 +78,7 @@ class ReplayBuffer:
             # if self._count % self.max_n_episodes == 0 and self._count > 0: 
             #     self.expand_dict(key, array)
             self._dict[key][self._count, :path_length] = array
+            self._dict[key][self._count, path_length:] = 0
                     
 
         ## penalize early termination
