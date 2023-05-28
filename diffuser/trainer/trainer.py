@@ -94,9 +94,13 @@ class Trainer(object):
             self.load(loadpath)
 
 
-    def create_dataloader(self):
-        self.dataloader = cycle(torch.utils.data.DataLoader(
-                self.dataset, batch_size=self.batch_size, num_workers=1, shuffle=True, pin_memory=True))
+    def create_dataloader(self, batch_size=None):
+        if batch_size == None:
+            self.dataloader = cycle(torch.utils.data.DataLoader(
+                    self.dataset, batch_size=self.batch_size, num_workers=1, shuffle=True, pin_memory=True))
+        else:
+            self.dataloader = cycle(torch.utils.data.DataLoader(
+                    self.dataset, batch_size=batch_size, num_workers=1, shuffle=True, pin_memory=True))
         self.dataloader_vis = cycle(torch.utils.data.DataLoader(
                 self.dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True))
 
@@ -125,7 +129,7 @@ class Trainer(object):
                 loss = loss / self.gradient_accumulate_every
                 loss.backward()
                 # TODO: what is max_norm?
-                nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.)
+                nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.1)
 
             self.optimizer.step()
             self.optimizer.zero_grad()
@@ -231,6 +235,13 @@ class Trainer(object):
 
             ## get a single datapoint
             batch = self.dataloader_vis.__next__()
+            conditions = batch.conditions
+            conditions[0] = np.array([1,1,0,0])[None]
+            conditions[batch.trajectories.shape[1]-1] = np.array([1,8,0,0])[None]
+            conditions[0] = self.dataset.normalizer.normalize(conditions[0], 'observations')
+            conditions[batch.trajectories.shape[1]-1] = self.dataset.normalizer.normalize(conditions[batch.trajectories.shape[1]-1], 'observations')
+            conditions[0] = torch.tensor(conditions[0])
+            conditions[batch.trajectories.shape[1]-1] = torch.tensor(conditions[batch.trajectories.shape[1]-1])
             conditions = to_device(batch.conditions, self.device)
 
             ## repeat each item in conditions `n_samples` times
@@ -252,7 +263,7 @@ class Trainer(object):
             #     obs = observations
             # else:
             #     obs = np.concatenate((obs,observations))
-        observations = observations.reshape((n_samples, 640, 4))
+        # observations = observations.reshape((n_samples, 640, 4))
         savepath = os.path.join(self.logdir, f'sample-{self.step}-{0}.png')
         self.renderer.composite(savepath, observations,ncol=5)
     

@@ -26,6 +26,16 @@ class OnlineTrainer:
         assert self.max_path_length >= self.traj_len, 'Wrong traj_len!'
         self.horizon = dataset_state.horizon
 
+        # self.trainer.diffusion_model.sample_kwargs = self.policy.sample_kwargs
+        # a = np.load('try.npy')
+        # a = a.reshape((100,200,4))[:34]
+        # for i in range(34):
+        #     e = self.format_episode(None,np.zeros((200,4)),[a[i]],np.zeros((200,1)),np.zeros((200,1)))
+        #     self.buffer.add_path(e)
+        # num_trainsteps_traj = self.process_dataset(self.dataset)
+        # self.save_buffer(self.trainer.logdir)
+        # self.trainer.train(num_trainsteps_traj)     
+
     def train(self, train_freq, iterations):
         """Online training scenerio."""
         total_reward = 0
@@ -39,8 +49,8 @@ class OnlineTrainer:
             elif self.predict_type == 'action_only':
                 actions, rew, terminals = [], [], [], []
             observation = self.env.reset()
-            if total_reward != 0 or it % 500 == 0:
-                target = self.sample_target(20)
+            if total_reward != 0 or it % 10 == 0:
+                target = self.sample_target(30)
                 total_reward = 0
             else:
                 pass
@@ -53,10 +63,9 @@ class OnlineTrainer:
             }
 
             for t in range(self.max_path_length):
-                
                 if t == 0:
                     cond[0] = self.env.state_vector().copy()
-                    cnt = 0
+                    # cnt = 0
                     samples = self.policy(cond)
                     obs_tmp = samples.observations
                     if obs_tmp.shape[0] == 1:
@@ -65,9 +74,13 @@ class OnlineTrainer:
                         obs_tmp = obs_tmp.reshape((-1, 4))
                 # design a simple controller based on observations
                 state = self.env.state_vector().copy()
+                if t < self.traj_len:
+                    action = obs_tmp[t,:2] - state[:2] + (obs_tmp[t,2:] - state[2:])
+                else:
+                    action = obs_tmp[-1,:2] - state[:2] + (0 - state[2:])
                 # action = obs_tmp[cnt,-1,:2] - state[:2] + (obs_tmp[cnt,-1,2:] - state[2:])
-                action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
-                cnt += 1
+                # action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
+                # cnt += 1
                 next_observation, reward, terminated, info = self.env.step(action)
                 
                 # cv2.imwrite('trial_rendering.png',self.env.render())
@@ -232,15 +245,25 @@ class OnlineTrainer:
         dataset.set_fields(self.buffer)
         self.policy.normalizer = dataset.normalizer
 
-        obs_energy = self.compute_buffer_energy(dataset)
-        buffer_size = dataset.fields['observations'].shape[0]
-        sample_size = buffer_size // 4
-        self.energy_sampling(dataset.fields, sample_size, obs_energy) 
-        num_trainsteps = sample_size * 10
+        if dataset.fields['observations'].shape[0] == 34:
+            num_trainsteps = 100000
+        else:
+            obs_energy = self.compute_buffer_energy(dataset)
+            buffer_size = dataset.fields['observations'].shape[0]
+            if buffer_size <=100:
+                sample_size = buffer_size
+                num_trainsteps = 1000
+            else:
+                sample_size = buffer_size // 4
+                self.energy_sampling(dataset.fields, sample_size, obs_energy) 
+                num_trainsteps = sample_size * 10
 
         if dataset == self.dataset:
             dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.traj_len)
-            self.trainer.create_dataloader()
+            if dataset.fields['observations'].shape[0] == 34:
+                self.trainer.create_dataloader(1)
+            else:
+                self.trainer.create_dataloader()
             self.trainer.render_buffer(10, dataset.fields['observations'])
         elif dataset == self.dataset_state:
             dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.horizon)
@@ -310,7 +333,10 @@ class OnlineTrainer:
         energy_list = []
         
         for i in range(raw_obs.shape[0]):
-            obs = raw_obs[i][:,None]
+            # obs = raw_obs[i][:,None]
+            # obs = raw_obs[i][:,None]
+            last = raw_obs[i,:,0].nonzero()[0][-1]
+            obs = raw_obs[i,:last+1][:,None]
             energy = self.model.get_buffer_energy(obs, self.device).sum(-1)
             energy_list.append(energy.detach().cpu().numpy().item())
         energy_array = np.array(energy_list)
@@ -318,15 +344,20 @@ class OnlineTrainer:
 
     def sample_target(self, batch_size):
 
-        target_array, pair = self.env.sample_target(batch_size)
-        target_state = np.zeros((batch_size, 1, self.dataset.observation_dim))
-        target_state[:,0,:2] = target_array
+        # target_array, pair = self.env.sample_target(batch_size)
+        # target_state = np.zeros((batch_size, 1, self.dataset.observation_dim))
+        # target_state[:,0,:2] = target_array
         # target_pair = np.zeros((batch_size, 2, self.dataset.observation_dim))
         # target_pair[:,0,:2] = target_array
         # target_pair[:,1,:2] = target_array + pair
-        
+        # np.array(([ 0.48975977,  0.50192666, -5.2262554 , -5.2262554 ],[ 7.213778 , 10.215629 ,  5.2262554,  5.2262554]),dtype=np.float32)
+        target_x = np.random.rand(batch_size) * (7.213778 - 0.48975977) + 0.48975977
+        target_y = np.random.rand(batch_size) * (10.215629 - 0.50192666) + 0.50192666
+        target_state = np.zeros((batch_size, 1, self.dataset.observation_dim))
+        target_state[:,0,0] = target_x
+        target_state[:,0,1] = target_y
         energy = self.model.get_target_energy(target_state, self.device)
-        return target_array[np.argmax(energy)]
+        return target_state[np.argmax(energy)].squeeze()[:2]
     
         # target = self.target_set[sample_idx//self.target_set.shape[1], sample_idx-sample_idx//self.target_set.shape[1]*self.target_set.shape[1]][:2]
         

@@ -184,15 +184,15 @@ class GaussianDiffusion(nn.Module):
         else:
             noise_traj = self.model.sample(x,cond,t)
             
-            if (t<=self.state_noise_start_t).any():
-                x_state = get_state_from_traj(x)
-                t_state = t.repeat(self.traj_len)
-                noise_state = self.state_model.sample(x_state, cond, t_state)
-                noise_state = get_traj_from_state(x, self.traj_len)
-                assert noise_state.shape == noise_traj.shape
-                noise = 0.3 * noise_state + 0.7 * noise_traj
-            else:
-                noise = 1.0 * noise_traj
+            # if (t<=self.state_noise_start_t).any():
+            #     x_state = get_state_from_traj(x)
+            #     t_state = t.repeat(self.traj_len)
+            #     noise_state = self.state_model.sample(x_state, cond, t_state)
+            #     noise_state = get_traj_from_state(x, self.traj_len)
+            #     assert noise_state.shape == noise_traj.shape
+            #     noise = 0.3 * noise_state + 0.7 * noise_traj
+            # else:
+            noise = 1.0 * noise_traj
 
             # pair_x = form_pairs(x)
             # noise_pair = self.pair_model.sample(pair_x, cond, torch.ones(pair_x.shape[0],device=pair_x.device)*t[0])
@@ -222,12 +222,12 @@ class GaussianDiffusion(nn.Module):
         return posterior_mean
 
     @torch.no_grad()
-    def p_mean_ddim_variance(self, x_t, cond, t, prev_t,sigma_t, grad=None, weight_traj=1.5):
+    def p_mean_ddim_variance(self, x_t, cond, t, prev_t,sigma_t, grad=None, weight_traj=0.7):
         if grad is not None:
             x_recon = self.predict_start_from_noise(x_t, t=t, noise=grad)
         else:
             noise_traj = self.model.sample(x_t,cond,t)
-            # if self.cnt >=10e6:
+            # if self.cnt <= 3000:
             #     start_cond = (t<=self.state_noise_start_t).any() or (t>=self.n_timesteps-self.state_noise_start_t-30).any()
             # else:
             #     start_cond = False
@@ -247,7 +247,7 @@ class GaussianDiffusion(nn.Module):
             #         assert RuntimeError()
             #     x_recon = (1-weight_traj) * x_recon_2 + weight_traj * x_recon_1
             # else:
-            noise = 1.0 * noise_traj
+            noise = noise_traj
             x_recon = self.predict_start_from_noise(x_t, t=t, noise=noise)
             x_recon.clamp_(-1., 1.)
 
@@ -283,28 +283,28 @@ class GaussianDiffusion(nn.Module):
         device = self.betas.device
         batch_size = shape[0]
         x = torch.randn(shape, device=device)
-        if batch_size == 1:
-            x = torch.randn((4, 160, 4), device=device)
-            x[1,0] = x[0,-1]
-            x[2,0] = x[1,-1]
-            x[3,0] = x[2,-1]
-            x[-1,-1] = cond[159]
-            x[0,0] = cond[0]
-            batch_size = 4
-        else:
-            x = torch.randn((batch_size,4, 160, 4), device=device)
-            x[:,1,0] = x[:,0,-1]
-            x[:,2,0] = x[:,1,-1]
-            x[:,3,0] = x[:,2,-1]
-            try:
-                x[:,-1,-1] = cond[159]
-            except:
-                pass
-            x[:,0,0] = cond[0]
-            batch_size = 4*batch_size
-            x = x.reshape((batch_size, 160, 4))
+        # if batch_size == 1:
+        #     x = torch.randn((4, 160, 4), device=device)
+        #     x[1,0] = x[0,-1]
+        #     x[2,0] = x[1,-1]
+        #     x[3,0] = x[2,-1]
+        #     x[-1,-1] = cond[159]
+        #     x[0,0] = cond[0]
+        #     batch_size = 4
+        # else:
+        #     x = torch.randn((batch_size,4, 160, 4), device=device)
+        #     x[:,1,0] = x[:,0,-1]
+        #     x[:,2,0] = x[:,1,-1]
+        #     x[:,3,0] = x[:,2,-1]
+        #     try:
+        #         x[:,-1,-1] = cond[159]
+        #     except:
+        #         pass
+        #     x[:,0,0] = cond[0]
+        #     batch_size = 4*batch_size
+        #     x = x.reshape((batch_size, 160, 4))
         # x = pair_consistency(x)
-        # x = apply_conditioning(x, cond, self.action_dim)
+        x = apply_conditioning(x, cond, self.action_dim)
         # x = new_apply_conditioning(x, cond, self.action_dim)
         x = self.to_torch(x)
         chain = [x] if return_chain else None
@@ -313,24 +313,24 @@ class GaussianDiffusion(nn.Module):
             prev_t = make_timesteps(batch_size, prev_t, device)
             x = self.n_step_guided_ddim_sample(x, cond, t, prev_t, **sample_kwargs)
             # x = new_apply_conditioning(x, cond, self.action_dim)
-            if batch_size == 4:
-                x[1,0] = x[0,-1]
-                x[2,0] = x[1,-1]
-                x[3,0] = x[2,-1]
-                x[-1,-1] = cond[159]
-                x[0,0] = cond[0]
-            else:
-                x = x.reshape((-1,4,160,4))
-                x[:,1,0] = x[:,0,-1]
-                x[:,2,0] = x[:,1,-1]
-                x[:,3,0] = x[:,2,-1]
-                try:
-                    x[:,-1,-1] = cond[159]
-                except:
-                    pass
-                x[:,0,0] = cond[0]
-                x = x.reshape((batch_size, 160, 4))
-            # x = apply_conditioning(x, cond, self.action_dim)
+            # if batch_size == 4:
+            #     x[1,0] = x[0,-1]
+            #     x[2,0] = x[1,-1]
+            #     x[3,0] = x[2,-1]
+            #     x[-1,-1] = cond[159]
+            #     x[0,0] = cond[0]
+            # else:
+            #     x = x.reshape((-1,4,160,4))
+            #     x[:,1,0] = x[:,0,-1]
+            #     x[:,2,0] = x[:,1,-1]
+            #     x[:,3,0] = x[:,2,-1]
+            #     try:
+            #         x[:,-1,-1] = cond[159]
+            #     except:
+            #         pass
+            #     x[:,0,0] = cond[0]
+            #     x = x.reshape((batch_size, 160, 4))
+            x = apply_conditioning(x, cond, self.action_dim)
             # x = pair_consistency(x)
             if return_chain: chain.append(x)
         if return_chain: chain = torch.stack(chain, dim=1)
@@ -340,8 +340,6 @@ class GaussianDiffusion(nn.Module):
     def n_step_guided_ddim_sample(
         self, x, cond, t, prev_t, eta=0, scale=0.001, t_stopgrad=0, n_guide_steps=1, scale_grad_by_std=False):
 
-        if self.cnt <= 500:
-            eta = 1
         alpha_prod_t = extract(self.alphas_cumprod, t, x.shape)
         alpha_prod_t_prev = extract(self.alphas_cumprod, prev_t, x.shape) if (prev_t >= 0).any() else torch.ones_like(alpha_prod_t) * self.final_alpha_cumprod
         beta_prod_t = 1 - alpha_prod_t

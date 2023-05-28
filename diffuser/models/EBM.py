@@ -11,7 +11,7 @@ class EBMDiffusionModel(nn.Module):
 
     def point_energy(self, x, cond, t):
         score = self.net(x, cond, t)
-        assert score.shape == x.shape, score.shape
+        assert score.shape == x.shape
         # if is_pair(x):
         #     score = pair_consistency(score)
         point_energy = ((score - x) ** 2).sum(-1)
@@ -20,14 +20,14 @@ class EBMDiffusionModel(nn.Module):
     def __call__(self, x, cond, t):
         with torch.enable_grad():
             x.requires_grad_(True)
-            energy = self.point_energy(x,cond,t).sum()
+            energy = self.point_energy(x,cond,t).sum(-1).sum()
             gradient = torch.autograd.grad([energy], [x],create_graph=True)[0]
         return gradient
     
     def sample(self, x, cond, t):
         with torch.enable_grad():
             x.requires_grad_(True)
-            energy = self.point_energy(x,cond,t).sum()
+            energy = self.point_energy(x,cond,t).sum(-1).sum()
             gradient = torch.autograd.grad([energy], [x])[0]
         return gradient
     

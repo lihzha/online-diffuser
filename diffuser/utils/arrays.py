@@ -32,7 +32,7 @@ def to_device(x, device=DEVICE):
 		return {k: to_device(v, device) for k, v in x.items()}
 	else:
 		print(f'Unrecognized type in `to_device`: {type(x)}')
-		pdb.set_trace()
+		# pdb.set_trace()
 	# return [x.to(device) for x in xs]
 
 # def atleast_2d(x, axis=0):

@@ -74,8 +74,8 @@ class ReplayBuffer:
         ## add tracked keys in path
         for key in self.keys:
             array = atleast_2d(path[key])
-            if key not in self._dict: self._allocate(key, array)
             # if self._count % self.max_n_episodes == 0 and self._count > 0: 
+            if key not in self._dict: self._allocate(key, array)
             #     self.expand_dict(key, array)
             self._dict[key][self._count, :path_length] = array
             self._dict[key][self._count, path_length:] = 0
