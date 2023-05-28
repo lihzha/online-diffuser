@@ -26,16 +26,19 @@ class OnlineTrainer:
         assert self.max_path_length >= self.traj_len, 'Wrong traj_len!'
         self.horizon = dataset_state.horizon
         self.trainer.diffusion_model.sample_kwargs = self.policy.sample_kwargs
-        a = np.load('try2.npy')
-        e = self.format_episode(None,np.zeros((200,4)),[a],np.zeros((200,1)),np.zeros((200,1)))
-        self.buffer.add_path(e)
+        # a = np.load('one_traj.npy')
+        # e = self.format_episode(None,np.zeros((200,4)),[a],np.zeros((200,1)),np.zeros((200,1)))
+        # self.buffer.add_path(e)
+        # a = np.load('try2.npy')
+        # e = self.format_episode(None,np.zeros((200,4)),[a],np.zeros((200,1)),np.zeros((200,1)))
+        # self.buffer.add_path(e)
         # a = a.reshape((100,200,4))[:34]
         # for i in range(34):
         #     e = self.format_episode(None,np.zeros((200,4)),[a[i]],np.zeros((200,1)),np.zeros((200,1)))
         #     self.buffer.add_path(e)
-        num_trainsteps_traj = self.process_dataset(self.dataset)
-        self.save_buffer(self.trainer.logdir)
-        self.trainer.train(num_trainsteps_traj)     
+        # num_trainsteps_traj = self.process_dataset(self.dataset)
+        # self.save_buffer(self.trainer.logdir)
+        # self.trainer.train(num_trainsteps_traj)     
 
     def train(self, train_freq, iterations):
         """Online training scenerio."""
@@ -51,7 +54,7 @@ class OnlineTrainer:
                 actions, rew, terminals = [], [], [], []
             observation = self.env.reset()
             if total_reward != 0 or it % 10 == 0:
-                target = self.sample_target(30)
+                target = self.sample_target(5)
                 total_reward = 0
             else:
                 pass
@@ -64,27 +67,36 @@ class OnlineTrainer:
             }
 
             for t in range(self.max_path_length):
-                if t % 100 == 0:
-                    cond[0] = self.env.state_vector().copy()
-                    # target = self.sample_target(5)
-                    # cond_targ = np.zeros(self.dataset.observation_dim)
-                    # cond[self.traj_len-1] = cond_targ    
-                    cnt = 0
-                    samples = self.policy(cond)
-                    obs_tmp = samples.observations
-                    if obs_tmp.shape[0] == 1:
-                        obs_tmp = obs_tmp.squeeze()
-                    elif obs_tmp.shape[0] == 4:
-                        obs_tmp = obs_tmp.reshape((-1, 4))
-                # design a simple controller based on observations
-                state = self.env.state_vector().copy()
-                # if t < self.traj_len:
-                # action = obs_tmp[t,:2] - state[:2] + (obs_tmp[t,2:] - state[2:])
-                # else:
-                # action = obs_tmp[-1,:2] - state[:2] + (0 - state[2:])
-                # action = obs_tmp[cnt,-1,:2] - state[:2] + (obs_tmp[cnt,-1,2:] - state[2:])
-                action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
-                cnt += 1
+                if it <= 3000:
+                    state = self.env.state_vector().copy()
+                    if t % self.max_path_length//3 == 0:
+                        target = self.sample_target(4)
+                        self.env.set_target(target)
+                        cond_targ = np.zeros(self.dataset.observation_dim)
+                        cond_targ[:2] = target
+                    action = cond_targ[:2] - state[:2] + (0 - state[2:])
+                else:
+                    if t % self.traj_len == 0:
+                        cond[0] = self.env.state_vector().copy()
+                        # target = self.sample_target(5)
+                        # cond_targ = np.zeros(self.dataset.observation_dim)
+                        # cond[self.traj_len-1] = cond_targ    
+                        cnt = 0
+                        samples = self.policy(cond)
+                        obs_tmp = samples.observations
+                        if obs_tmp.shape[0] == 1:
+                            obs_tmp = obs_tmp.squeeze()
+                        elif obs_tmp.shape[0] == 4:
+                            obs_tmp = obs_tmp.reshape((-1, 4))
+                    # design a simple controller based on observations
+                    state = self.env.state_vector().copy()
+                    # if t < self.traj_len:
+                    # action = obs_tmp[t,:2] - state[:2] + (obs_tmp[t,2:] - state[2:])
+                    # else:
+                    # action = obs_tmp[-1,:2] - state[:2] + (0 - state[2:])
+                    # action = obs_tmp[cnt,-1,:2] - state[:2] + (obs_tmp[cnt,-1,2:] - state[2:])
+                    action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
+                    cnt += 1
                 next_observation, reward, terminated, info = self.env.step(action)
                 
                 # cv2.imwrite('trial_rendering.png',self.env.render())
@@ -166,7 +178,6 @@ class OnlineTrainer:
             rollout = [observation.copy()]
             fake_rollout = 0
             for t in range(self.max_path_length):
-                
                 if t % self.traj_len == 0:
                     cond[0] = self.env.state_vector().copy()
                     cnt = 0
@@ -249,26 +260,37 @@ class OnlineTrainer:
         dataset.set_fields(self.buffer)
         self.policy.normalizer = dataset.normalizer
 
-        if dataset.fields['observations'].shape[0] == 1:
-            num_trainsteps = 100000
+        # if dataset.fields['observations'].shape[0] == 2:
+        #     num_trainsteps = 100000
+        # else:
+        #     obs_energy = self.compute_buffer_energy(dataset)
+        #     buffer_size = dataset.fields['observations'].shape[0]
+        #     if buffer_size <=100:
+        #         sample_size = buffer_size
+        #         num_trainsteps = 1000
+        #     else:
+        #         sample_size = buffer_size // 4
+        #         self.energy_sampling(dataset.fields, sample_size, obs_energy) 
+        #         print(f'Get {sample_size} trajectories for training !!!!')
+        #         num_trainsteps = sample_size * 10
+        
+        if self.policy.diffusion_model.cnt <= 1000:
+            num_trainsteps = 4000
         else:
             obs_energy = self.compute_buffer_energy(dataset)
             buffer_size = dataset.fields['observations'].shape[0]
-            if buffer_size <=100:
-                sample_size = buffer_size
-                num_trainsteps = 1000
-            else:
-                sample_size = buffer_size // 4
-                self.energy_sampling(dataset.fields, sample_size, obs_energy) 
-                num_trainsteps = sample_size * 10
+            sample_size = buffer_size // 4
+            self.energy_sampling(dataset.fields, sample_size, obs_energy) 
+            print(f'Get {sample_size} trajectories for training !!!!')
+            num_trainsteps = sample_size * 10
 
         if dataset == self.dataset:
             dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.traj_len)
-            if dataset.fields['observations'].shape[0] == 1:
-                self.trainer.create_dataloader(1)
+            if dataset.fields['observations'].shape[0] == 2:
+                self.trainer.create_dataloader(2)
             else:
                 self.trainer.create_dataloader()
-            self.trainer.render_buffer(10, dataset.fields['observations'])
+            self.trainer.render_buffer(50, dataset.fields['observations'])
         elif dataset == self.dataset_state:
             dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.horizon)
             self.trainer_state.create_dataloader()

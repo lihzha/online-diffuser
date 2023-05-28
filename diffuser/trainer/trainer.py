@@ -122,8 +122,9 @@ class Trainer(object):
         timer = Timer()
         for step in range(n_train_steps):
             for i in range(self.gradient_accumulate_every):
-                batch = next(self.dataloader)
-                batch = batch_to_device(batch, device=self.device)
+                if step==0:
+                    batch = next(self.dataloader)
+                    batch = batch_to_device(batch, device=self.device)
 
                 loss, infos = self.diffusion_model.loss(*batch)
                 loss = loss / self.gradient_accumulate_every

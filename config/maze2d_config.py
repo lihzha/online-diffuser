@@ -5,7 +5,7 @@ base = {
 
     'online_training': {
 
-        'dirname':'try',
+        'dirname':'only_hardcoded_3000',
 
         # environment:
         'env_wrapper': 'environments.d4rl_env_wrapper',
@@ -19,7 +19,7 @@ base = {
         'max_path_length': 800,
         'max_n_episodes': 5000,
         'predict_type': 'obs_only',
-        'device': 'cuda:2',
+        'device': 'cuda:3',
 
         # renderer
         'renderer': 'utils.Maze2dRenderer',
@@ -55,7 +55,7 @@ base = {
         'bucket': None,
         'n_reference': 50,
         'n_samples': 1,
-        'loadpath_traj': '/home/lihan/diffuser-maze2d/logs/maze2d-large-v1/diffusion/5_28_try/traj/state_40000.pt',
+        'loadpath_traj': None,
         'loadpath_state': None,
 
         # plan
@@ -69,9 +69,9 @@ base = {
         'verbose': True,
 
         # online trainer
-        'train_freq': 200,
+        'train_freq': 500,
         'iterations': 300001,
-        'traj_len': 200,
+        'traj_len': 256,
 
     },
 
