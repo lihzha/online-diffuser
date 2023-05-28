@@ -25,16 +25,17 @@ class OnlineTrainer:
         self.device = self.trainer.device
         assert self.max_path_length >= self.traj_len, 'Wrong traj_len!'
         self.horizon = dataset_state.horizon
-
-        # self.trainer.diffusion_model.sample_kwargs = self.policy.sample_kwargs
-        # a = np.load('try.npy')
+        self.trainer.diffusion_model.sample_kwargs = self.policy.sample_kwargs
+        a = np.load('try2.npy')
+        e = self.format_episode(None,np.zeros((200,4)),[a],np.zeros((200,1)),np.zeros((200,1)))
+        self.buffer.add_path(e)
         # a = a.reshape((100,200,4))[:34]
         # for i in range(34):
         #     e = self.format_episode(None,np.zeros((200,4)),[a[i]],np.zeros((200,1)),np.zeros((200,1)))
         #     self.buffer.add_path(e)
-        # num_trainsteps_traj = self.process_dataset(self.dataset)
-        # self.save_buffer(self.trainer.logdir)
-        # self.trainer.train(num_trainsteps_traj)     
+        num_trainsteps_traj = self.process_dataset(self.dataset)
+        self.save_buffer(self.trainer.logdir)
+        self.trainer.train(num_trainsteps_traj)     
 
     def train(self, train_freq, iterations):
         """Online training scenerio."""
@@ -63,9 +64,12 @@ class OnlineTrainer:
             }
 
             for t in range(self.max_path_length):
-                if t == 0:
+                if t % 100 == 0:
                     cond[0] = self.env.state_vector().copy()
-                    # cnt = 0
+                    # target = self.sample_target(5)
+                    # cond_targ = np.zeros(self.dataset.observation_dim)
+                    # cond[self.traj_len-1] = cond_targ    
+                    cnt = 0
                     samples = self.policy(cond)
                     obs_tmp = samples.observations
                     if obs_tmp.shape[0] == 1:
@@ -74,13 +78,13 @@ class OnlineTrainer:
                         obs_tmp = obs_tmp.reshape((-1, 4))
                 # design a simple controller based on observations
                 state = self.env.state_vector().copy()
-                if t < self.traj_len:
-                    action = obs_tmp[t,:2] - state[:2] + (obs_tmp[t,2:] - state[2:])
-                else:
-                    action = obs_tmp[-1,:2] - state[:2] + (0 - state[2:])
+                # if t < self.traj_len:
+                # action = obs_tmp[t,:2] - state[:2] + (obs_tmp[t,2:] - state[2:])
+                # else:
+                # action = obs_tmp[-1,:2] - state[:2] + (0 - state[2:])
                 # action = obs_tmp[cnt,-1,:2] - state[:2] + (obs_tmp[cnt,-1,2:] - state[2:])
-                # action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
-                # cnt += 1
+                action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
+                cnt += 1
                 next_observation, reward, terminated, info = self.env.step(action)
                 
                 # cv2.imwrite('trial_rendering.png',self.env.render())
@@ -245,7 +249,7 @@ class OnlineTrainer:
         dataset.set_fields(self.buffer)
         self.policy.normalizer = dataset.normalizer
 
-        if dataset.fields['observations'].shape[0] == 34:
+        if dataset.fields['observations'].shape[0] == 1:
             num_trainsteps = 100000
         else:
             obs_energy = self.compute_buffer_energy(dataset)
@@ -260,7 +264,7 @@ class OnlineTrainer:
 
         if dataset == self.dataset:
             dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.traj_len)
-            if dataset.fields['observations'].shape[0] == 34:
+            if dataset.fields['observations'].shape[0] == 1:
                 self.trainer.create_dataloader(1)
             else:
                 self.trainer.create_dataloader()
@@ -336,7 +340,7 @@ class OnlineTrainer:
             # obs = raw_obs[i][:,None]
             # obs = raw_obs[i][:,None]
             last = raw_obs[i,:,0].nonzero()[0][-1]
-            obs = raw_obs[i,:last+1][:,None]
+            obs = raw_obs[i,last][None,None]
             energy = self.model.get_buffer_energy(obs, self.device).sum(-1)
             energy_list.append(energy.detach().cpu().numpy().item())
         energy_array = np.array(energy_list)
