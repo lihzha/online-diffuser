@@ -7,7 +7,7 @@ import time
 class Parser(utils.Parser):
     # dataset: str = 'maze2d-large-v1'
     dataset: str = 'PandaReach-v3'
-    config: str = 'config.maze2d_config'
+    config: str = 'config.panda_config'
 
 def _make_dir(args_path, dirname=None):
     time_now = time.gmtime()
@@ -36,15 +36,16 @@ def main():
     env_config = utils.Config(
         args.env_wrapper,
         env=args.env,
+        render_mode=args.render_mode
     )
     env = env_config()
 
-    render_config = utils.Config(
-        args.renderer,
-        savepath=(diffusion_savepath, 'render_config.pkl'),
-        env=args.env,
-    )
-    renderer = render_config()
+    # render_config = utils.Config(
+    #     args.renderer,
+    #     savepath=(diffusion_savepath, 'render_config.pkl'),
+    #     env=args.env,
+    # )
+    # renderer = render_config()
 
     if args.predict_type not in ['obs_only', 'ation_only', 'joint']:
         raise ValueError('Unknown predict type!')
@@ -63,8 +64,8 @@ def main():
     dataset_traj = dataset_config(horizon=args.traj_len)
 
 
-    observation_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.shape[0]
+    observation_dim = dataset_state.observation_dim
+    action_dim = dataset_state.action_dim
 
     if args.predict_type == 'obs_only':
         transition_dim = observation_dim
@@ -124,9 +125,9 @@ def main():
 
     diffusion = diffusion_config(model=trajectory_model, state_model=state_model)
 
-    trainer_state = trainer_config(diffusion, state_model, dataset_state, args.device, renderer, 
+    trainer_state = trainer_config(diffusion, state_model, dataset_state, args.device, None, 
                                    args.state_batchsize, diffusion_savepath+'/state', args.loadpath_state)
-    trainer_traj = trainer_config(diffusion, trajectory_model, dataset_traj, args.device, renderer, 
+    trainer_traj = trainer_config(diffusion, trajectory_model, dataset_traj, args.device, None, 
                                   args.traj_batchsize, diffusion_savepath+'/traj', args.loadpath_traj)
  
     diffusion = trainer_traj.diffusion_model

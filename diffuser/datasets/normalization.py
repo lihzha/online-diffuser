@@ -35,7 +35,8 @@ class DatasetNormalizer:
                 self.normalizers[key] = normalizer(val)
             elif key == 'observations':
                 # val = np.array(([ 0.48975977,  0.50192666, -5.2262554 , -5.2262554 ],[ 7.213778 , 10.215629 ,  5.2262554,  5.2262554]),dtype=np.float32)
-                val = np.array(([ 0.48975977,  0.50192666, -5.2262554 , -5.2262554 ],[ 7.213778 , 10.215629 ,  5.2262554,  5.2262554]),dtype=np.float32)
+                # val = np.array(([ 0.48975977,  0.50192666, -5.2262554 , -5.2262554 ],[ 7.213778 , 10.215629 ,  5.2262554,  5.2262554]),dtype=np.float32)
+                val = np.array(([0.55,0.35,0.2],[-0.55,-0.35,0.]),dtype=np.float32)
                 self.normalizers[key] = normalizer(val)
             else:
                 raise NotImplementedError

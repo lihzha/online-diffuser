@@ -230,48 +230,62 @@ class Trainer(object):
             renders samples from (ema) diffusion model
         '''
         n_samples = 10
-        batch_size = 1
-        for i in range(batch_size):
-
             ## get a single datapoint
-            batch = self.dataloader_vis.__next__()
-            conditions = batch.conditions
-            conditions[0] = np.array([1,1,0,0])[None]
-            conditions[batch.trajectories.shape[1]-1] = np.array([1,8,0,0])[None]
-            conditions[0] = self.dataset.normalizer.normalize(conditions[0], 'observations')
-            conditions[batch.trajectories.shape[1]-1] = self.dataset.normalizer.normalize(conditions[batch.trajectories.shape[1]-1], 'observations')
-            conditions[0] = torch.tensor(conditions[0])
-            conditions[batch.trajectories.shape[1]-1] = torch.tensor(conditions[batch.trajectories.shape[1]-1])
-            conditions = to_device(batch.conditions, self.device)
+        batch = self.dataloader_vis.__next__()
+        conditions = batch.conditions
+        conditions = apply_dict(
+            einops.repeat,
+            conditions,
+            'b d -> (repeat b) d', repeat=n_samples,
+        )
+        ## [ n_samples x horizon x (action_dim + observation_dim) ]
+        samples = self.diffusion_model.conditional_sample(conditions, train_ddim=True)
+        samples = to_np(samples.trajectories)
+        normed_observations = samples
+        ## [ n_samples x (horizon + 1) x observation_dim ]
+        observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
+        savepath = os.path.join(self.logdir, f'sample-{self.step}.png')
+        fig = plt.figure(figsize=(12, 12))
+        ax = fig.add_subplot(111,projection='3d')
+        for i in range(observations.shape[0]):
+            ax.plot3D(observations[i,:,0], observations[i,:,1],observations[i,:,2])
+        plt.savefig(savepath)
+        print()
+        
 
-            ## repeat each item in conditions `n_samples` times
-            conditions = apply_dict(
-                einops.repeat,
-                conditions,
-                'b d -> (repeat b) d', repeat=n_samples,
-            )
+        savepath = os.path.join(self.logdir, f'sample-{self.step}.mp4')
+        env = self.dataset.env
+        _ = env.reset()
+        img = env.render()
+        width = img.shape[1]
+        height = img.shape[0]
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v') # FourCC is a 4-byte code used to specify the video codec.
+        video = cv2.VideoWriter(savepath, fourcc, float(30), (width, height))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        video.write(img)
 
-            ## [ n_samples x horizon x (action_dim + observation_dim) ]
-            samples = self.diffusion_model.conditional_sample(conditions, train_ddim=True)
-            samples = to_np(samples.trajectories)
-            normed_observations = samples
-
-            ## [ n_samples x (horizon + 1) x observation_dim ]
-            observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
-            # observations = observations[:,0,:][None]
-            # if i == 0:
-            #     obs = observations
-            # else:
-            #     obs = np.concatenate((obs,observations))
-        # observations = observations.reshape((n_samples, 640, 4))
-        savepath = os.path.join(self.logdir, f'sample-{self.step}-{0}.png')
-        self.renderer.composite(savepath, observations,ncol=5)
+        observations = observations[0]
+        for cnt in range(observations.shape[0]-1):
+            a = 10 * (observations[cnt+1, :self.dataset.observation_dim ] - observations[cnt, :self.dataset.observation_dim])
+            _ = env.step(a)
+            img = env.render()
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            video.write(img)
+        video.release()
+        print(f'Save video to {savepath}')
     
 
     def render_buffer(self, batchsize, obs):
         
         savepath = os.path.join(self.logdir, f'sample_reference-{self.step}.png')
         obs_num = obs.shape[0]     
-        idx = np.random.choice(obs_num, batchsize, replace=True)
+        idx = np.random.choice(obs_num, batchsize, replace=False)
 
-        self.renderer.composite(savepath, obs[idx], ncol=5)
+        fig = plt.figure(figsize=(12, 12))
+        ax = fig.add_subplot(111, projection='3d')
+        for i in idx:
+            ax.plot3D(obs[i,:,0], obs[i,:,1],obs[i,:,2])
+        plt.savefig(savepath)
+        print(f'Save to {savepath}')
+
+        

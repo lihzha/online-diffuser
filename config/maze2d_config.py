@@ -21,9 +21,6 @@ base = {
         'predict_type': 'obs_only',
         'device': 'cuda:1',
 
-        # renderer
-        'renderer': 'utils.Maze2dRenderer',
-
         # model
         'wrapper': 'models.model_wrapper',
         'model_name': 'TemporalUnet',

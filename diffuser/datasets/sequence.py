@@ -21,7 +21,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.env = env
         self.horizon = horizon
         self.action_dim = self.env.action_space.shape[0]
-        self.observation_dim = self.env.observation_space.shape[0]
+        self.observation_dim = self.env.observation_space['observation'].shape[0]
         self.max_path_length = max_path_length
         self.max_n_episodes = max_n_episodes
 

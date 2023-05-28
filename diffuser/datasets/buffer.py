@@ -62,6 +62,7 @@ class ReplayBuffer:
         # print(f'[ utils/mujoco ] Allocated {key} with size {shape}')
 
     def add_path(self, path):
+        self.episode_num = self._count % self.max_n_episodes
         path_length = len(path['observations'])
         if path_length > self.max_path_length:
             path_length = self.max_path_length
@@ -77,22 +78,23 @@ class ReplayBuffer:
             # if self._count % self.max_n_episodes == 0 and self._count > 0: 
             if key not in self._dict: self._allocate(key, array)
             #     self.expand_dict(key, array)
-            self._dict[key][self._count, :path_length] = array
-            self._dict[key][self._count, path_length:] = 0
+            self._dict[key][self.episode_num, :path_length] = array
+            self._dict[key][self.episode_num, path_length:] = 0
                     
 
         ## penalize early termination
         if path['terminals'].any() and self.termination_penalty is not None:
             # assert not path['timeouts'].any(), 'Penalized a timeout episode for early termination'
-            self._dict['rewards'][self._count, path_length - 1] += self.termination_penalty
+            self._dict['rewards'][self.episode_num, path_length - 1] += self.termination_penalty
 
         ## record path length
         # if self._count % self.max_n_episodes == 0 and self._count > 0: 
             # self._dict['path_lengths'] = np.concatenate((self._dict['path_lengths'], np.zeros(self.max_n_episodes,dtype=np.int32)))
-        self._dict['path_lengths'][self._count] = path_length
+        self._dict['path_lengths'][self.episode_num] = path_length
         ## increment path counter
         self._count += 1
-        self._count = self._count % self.max_n_episodes
+        self._count = min(self._count, self.max_n_episodes)
+
         
     def truncate_path(self, path_ind, step):
         old = self._dict['path_lengths'][path_ind]

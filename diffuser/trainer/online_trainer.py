@@ -1,6 +1,7 @@
 import copy
 import numpy as np
 import os
+import cv2
 
 class OnlineTrainer:
     def __init__(self, state_model, trajectory_model, trainer_traj, trainer_state, env, dataset_traj, dataset_state, policy, predict_type):
@@ -23,6 +24,7 @@ class OnlineTrainer:
         self.max_path_length = dataset_traj.max_path_length
         self.traj_len = dataset_traj.horizon
         self.device = self.trainer.device
+        self.env.device = self.device
         assert self.max_path_length >= self.traj_len, 'Wrong traj_len!'
         self.horizon = dataset_state.horizon
 
@@ -48,23 +50,27 @@ class OnlineTrainer:
                 next_obs, obs, rew, terminals = [], [], [], []
             elif self.predict_type == 'action_only':
                 actions, rew, terminals = [], [], [], []
-            observation = self.env.reset()
-            if total_reward != 0 or it % 10 == 0:
-                target = self.sample_target(30)
-                total_reward = 0
+
+            obs_info = self.env.reset(density=self.model, batch_size=10, device=self.device)
+            # obs_info = self.env.reset()
+            observation = obs_info[0]['observation']
+            target_obj = obs_info[0]['achieved_goal']
+            target_pos = obs_info[0]['desired_goal']
+            if it % 2 == 0:
+                target = target_obj
             else:
-                pass
-            self.env.set_target(target)
+                target = target_pos
+            # self.env.set_target(target)
             # cond_pos = np.random.randint(self.traj_len//2, self.traj_len-1)
             cond_targ = np.zeros(self.dataset.observation_dim)
-            cond_targ[:2] = self.env.get_target()
+            cond_targ[:self.dataset.observation_dim] = target
             cond = {
                 self.traj_len-1: cond_targ
             }
 
             for t in range(self.max_path_length):
                 if t == 0:
-                    cond[0] = self.env.state_vector().copy()
+                    cond[0] = self.env.unwrapped.robot.get_obs().copy()
                     # cnt = 0
                     samples = self.policy(cond)
                     obs_tmp = samples.observations
@@ -73,19 +79,21 @@ class OnlineTrainer:
                     elif obs_tmp.shape[0] == 4:
                         obs_tmp = obs_tmp.reshape((-1, 4))
                 # design a simple controller based on observations
-                state = self.env.state_vector().copy()
-                if t < self.traj_len:
-                    action = obs_tmp[t,:2] - state[:2] + (obs_tmp[t,2:] - state[2:])
+                state = self.env.unwrapped.robot.get_obs().copy()
+                if t < self.traj_len-1:
+                    action = 10 * (obs_tmp[t+1,:3] - obs_tmp[t,:3])
                 else:
-                    action = obs_tmp[-1,:2] - state[:2] + (0 - state[2:])
+                    action = (obs_tmp[-1,:3] - state[:3])
                 # action = obs_tmp[cnt,-1,:2] - state[:2] + (obs_tmp[cnt,-1,2:] - state[2:])
                 # action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
                 # cnt += 1
-                next_observation, reward, terminated, info = self.env.step(action)
+                next_obs_info, reward, terminated, _, info = self.env.step(action)
+                next_observation = next_obs_info['observation']
                 
-                # cv2.imwrite('trial_rendering.png',self.env.render())
-                if np.linalg.norm((next_observation - observation)[:2]) < 1e-3 and it!=0:
-                    break
+                # if t % 1 == 0:
+                #     cv2.imwrite('trial_rendering.png',self.env.render())
+                # if np.linalg.norm((next_observation - observation)[:3]) < 1e-5 and it!=0:
+                #     break
 
                 total_reward += reward
                 # score = self.env.get_normalized_score(self.total_reward)
@@ -245,18 +253,16 @@ class OnlineTrainer:
         dataset.set_fields(self.buffer)
         self.policy.normalizer = dataset.normalizer
 
-        if dataset.fields['observations'].shape[0] == 34:
-            num_trainsteps = 100000
+
+        obs_energy = self.compute_buffer_energy(dataset)
+        buffer_size = dataset.fields['observations'].shape[0]
+        if buffer_size <=100:
+            sample_size = buffer_size
+            num_trainsteps = 1000
         else:
-            obs_energy = self.compute_buffer_energy(dataset)
-            buffer_size = dataset.fields['observations'].shape[0]
-            if buffer_size <=100:
-                sample_size = buffer_size
-                num_trainsteps = 1000
-            else:
-                sample_size = buffer_size // 4
-                self.energy_sampling(dataset.fields, sample_size, obs_energy) 
-                num_trainsteps = sample_size * 10
+            sample_size = buffer_size // 4
+            self.energy_sampling(dataset.fields, sample_size, obs_energy) 
+            num_trainsteps = sample_size * 10
 
         if dataset == self.dataset:
             dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.traj_len)
@@ -351,11 +357,14 @@ class OnlineTrainer:
         # target_pair[:,0,:2] = target_array
         # target_pair[:,1,:2] = target_array + pair
         # np.array(([ 0.48975977,  0.50192666, -5.2262554 , -5.2262554 ],[ 7.213778 , 10.215629 ,  5.2262554,  5.2262554]),dtype=np.float32)
-        target_x = np.random.rand(batch_size) * (7.213778 - 0.48975977) + 0.48975977
-        target_y = np.random.rand(batch_size) * (10.215629 - 0.50192666) + 0.50192666
+        val = np.array(([0.55,0.35,0.05],[-0.55,-0.35,0.]),dtype=np.float32)
+        target_x = np.random.rand(batch_size) * (0.55 + 0.55) - 0.55
+        target_y = np.random.rand(batch_size) * (0.35 + 0.35) - 0.35
+        target_z = np.random.rand(batch_size) * (0.05 + 0.)
         target_state = np.zeros((batch_size, 1, self.dataset.observation_dim))
         target_state[:,0,0] = target_x
         target_state[:,0,1] = target_y
+        target_state[:,0,2] = target_z
         energy = self.model.get_target_energy(target_state, self.device)
         return target_state[np.argmax(energy)].squeeze()[:2]
     
