@@ -5,7 +5,7 @@ base = {
 
     'online_training': {
 
-        'dirname':'panda_finetune_target',
+        'dirname':'hardcoded_first',
 
         # environment:
         'env_wrapper': 'environments.gym_env_wrapper',
@@ -17,7 +17,7 @@ base = {
         'horizon': 1,
         'normalizer': 'LimitsNormalizer',
         'max_path_length': 400,
-        'max_n_episodes': 100,
+        'max_n_episodes': 3000,
         'predict_type': 'obs_only',
         'device': 'cuda:0',
 
@@ -66,7 +66,7 @@ base = {
         'verbose': True,
 
         # online trainer
-        'train_freq': 100,
+        'train_freq': 500,
         'iterations': 300001,
         'traj_len': 200,
 

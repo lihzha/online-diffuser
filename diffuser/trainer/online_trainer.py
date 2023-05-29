@@ -69,21 +69,25 @@ class OnlineTrainer:
             }
 
             for t in range(self.max_path_length):
-                if t == 0:
-                    cond[0] = self.env.unwrapped.robot.get_obs().copy()
-                    # cnt = 0
-                    samples = self.policy(cond)
-                    obs_tmp = samples.observations
-                    if obs_tmp.shape[0] == 1:
-                        obs_tmp = obs_tmp.squeeze()
-                    elif obs_tmp.shape[0] == 4:
-                        obs_tmp = obs_tmp.reshape((-1, 4))
-                # design a simple controller based on observations
-                state = self.env.unwrapped.robot.get_obs().copy()
-                if t < self.traj_len-1:
-                    action = 10 * (obs_tmp[t+1,:3] - obs_tmp[t,:3])
+                if it <= 4000:
+                    state = self.env.unwrapped.robot.get_obs().copy()
+                    action = 5 * (cond[self.traj_len-1] - state[:3])
                 else:
-                    action = (obs_tmp[-1,:3] - state[:3])
+                    if t == 0:
+                        cond[0] = self.env.unwrapped.robot.get_obs().copy()
+                        # cnt = 0
+                        samples = self.policy(cond)
+                        obs_tmp = samples.observations
+                        if obs_tmp.shape[0] == 1:
+                            obs_tmp = obs_tmp.squeeze()
+                        elif obs_tmp.shape[0] == 4:
+                            obs_tmp = obs_tmp.reshape((-1, 4))
+                    # design a simple controller based on observations
+                    state = self.env.unwrapped.robot.get_obs().copy()
+                    if t < self.traj_len-1:
+                        action = 10 * (obs_tmp[t+1,:3] - obs_tmp[t,:3])
+                    else:
+                        action = (obs_tmp[-1,:3] - state[:3])
                 # action = obs_tmp[cnt,-1,:2] - state[:2] + (obs_tmp[cnt,-1,2:] - state[2:])
                 # action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
                 # cnt += 1
@@ -105,8 +109,8 @@ class OnlineTrainer:
                         f'it: {it} | maze | pos: {xy} | goal: {goal}'
                     )
                 else:
-                    xy = next_observation[:2]
-                    dist = np.linalg.norm(xy-cond_targ[:2])
+                    xy = next_observation[:3]
+                    dist = np.linalg.norm(xy-cond_targ[:3])
                     print(
                         f'it: {it} | panda | dist: {dist}'
                     )
@@ -171,7 +175,7 @@ class OnlineTrainer:
             fake_rollout = 0
             for t in range(self.max_path_length):
                 
-                if t % self.traj_len == 0:
+                if t % 20 == 0:
                     cond[0] = self.env.state_vector().copy()
                     cnt = 0
                     samples = self.policy(cond,batch_size=10)
@@ -254,15 +258,25 @@ class OnlineTrainer:
         self.policy.normalizer = dataset.normalizer
 
 
-        obs_energy = self.compute_buffer_energy(dataset)
-        buffer_size = dataset.fields['observations'].shape[0]
-        if buffer_size <=100:
-            sample_size = buffer_size
-            num_trainsteps = 1000
+        # obs_energy = self.compute_buffer_energy(dataset)
+        # buffer_size = dataset.fields['observations'].shape[0]
+        # if buffer_size <=100:
+        #     sample_size = buffer_size
+        #     num_trainsteps = 1000
+        # else:
+        #     sample_size = buffer_size // 4
+        #     self.energy_sampling(dataset.fields, sample_size, obs_energy) 
+        #     num_trainsteps = sample_size * 10
+        if self.policy.diffusion_model.cnt <= 1000:
+            num_trainsteps = 5000
         else:
+            obs_energy = self.compute_buffer_energy(dataset)
+            buffer_size = dataset.fields['observations'].shape[0]
             sample_size = buffer_size // 4
-            self.energy_sampling(dataset.fields, sample_size, obs_energy) 
+            self.energy_sampling(dataset.fields, sample_size, obs_energy)
+            print(f'Getting {sample_size} trajectories for training!!!!')
             num_trainsteps = sample_size * 10
+
 
         if dataset == self.dataset:
             dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.traj_len)
