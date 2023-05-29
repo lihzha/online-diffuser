@@ -5,7 +5,7 @@ base = {
 
     'online_training': {
 
-        'dirname':'only_hardcoded_3000',
+        'dirname':'only_hardcoded_3000_mid_value_sampling_gtdensity',
 
         # environment:
         'env_wrapper': 'environments.d4rl_env_wrapper',
@@ -19,7 +19,7 @@ base = {
         'max_path_length': 800,
         'max_n_episodes': 5000,
         'predict_type': 'obs_only',
-        'device': 'cuda:3',
+        'device': 'cuda:2',
 
         # renderer
         'renderer': 'utils.Maze2dRenderer',
@@ -55,8 +55,8 @@ base = {
         'bucket': None,
         'n_reference': 50,
         'n_samples': 1,
-        'loadpath_traj': None,
-        'loadpath_state': None,
+        'loadpath_traj': '/home/lihan/diffuser-maze2d/logs/maze2d-large-v1/diffusion/5_29_only_hardcoded_3000_mid_value_sampling_gtdensity/traj/state_0.pt',
+        'loadpath_state': '/home/lihan/diffuser-maze2d/logs/maze2d-large-v1/diffusion/5_25_train_seperately/state/state_280000.pt',
 
         # plan
         # 'guide': 'sampling.EBM_DensityGuide',

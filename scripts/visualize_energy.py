@@ -7,7 +7,7 @@ import time
 class Parser(utils.Parser):
     # dataset: str = 'maze2d-large-v1'
     dataset: str = 'PandaReach-v3'
-    config: str = 'config.maze2d'
+    config: str = 'config.maze2d_config'
 
 def _make_dir(args_path, dirname=None):
     time_now = time.gmtime()
@@ -118,8 +118,8 @@ def main():
         n_reference=args.n_reference,
         n_samples=args.n_samples,
     )
-    state_model = model_config(dim_mults=args.dim_mults_pair, horizon=args.horizon)
 
+    state_model = model_config(dim_mults=args.dim_mults_pair, horizon=args.horizon)
     trajectory_model = model_config(dim_mults=args.dim_mults_trajectory, horizon=args.traj_len)
 
     diffusion = diffusion_config(model=trajectory_model, state_model=state_model)
@@ -128,8 +128,25 @@ def main():
                                    args.state_batchsize, diffusion_savepath+'/state', args.loadpath_state)
     trainer_traj = trainer_config(diffusion, trajectory_model, dataset_traj, args.device, renderer, 
                                   args.traj_batchsize, diffusion_savepath+'/traj', args.loadpath_traj)
-    state_model = trainer_state.ema_model
+ 
     diffusion = trainer_traj.diffusion_model
+
+    policy_config = utils.Config(
+        args.policy,
+        scale=args.scale,
+        diffusion_model=diffusion,
+        normalizer=dataset_traj.normalizer,
+        ## sampling kwargs
+        n_guide_steps=args.n_guide_steps,
+        t_stopgrad=args.t_stopgrad,
+        scale_grad_by_std=args.scale_grad_by_std,
+        eta=args.eta,
+        verbose=args.verbose,
+        predict_type=args.predict_type,
+        _device=args.device
+    )
+
+    policy = policy_config()
 
     
 
@@ -153,7 +170,7 @@ def main():
     x = torch.tensor(m, dtype=torch.float32, device=args.device)
     noise_num = 10
     for _ in range(noise_num):
-        for t in range(0, 5):
+        for t in range(0,1):
             t = torch.ones(13328//2, dtype=torch.long, device=args.device) * t
             x_noisy = diffusion.q_sample(x_start=x, t=t)
             energy_ij = state_model.point_energy(x_noisy, None, t)
@@ -164,7 +181,7 @@ def main():
     import matplotlib.pyplot as plt
     np.save('density.npy', Z)
     plt.pcolormesh(X, Y, Z.T, shading='auto')
-    plt.savefig('density_sum2.png')
+    plt.savefig('density_sum529.png')
 
         
 

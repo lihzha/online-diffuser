@@ -355,6 +355,38 @@ class Maze2dRenderer(MazeRenderer):
             conditions /= scale
         return super().renders(observations, conditions, **kwargs)
 
+    def render_energy_traj(self, savepath, observations, energy, title=None):
+
+        bounds = MAZE_BOUNDS[self.env_name]
+        if len(observations.shape) == 2:
+            observations = observations[:observations.nonzero()[0][-1]+1,:]
+        observations = observations + .5
+        if len(bounds) == 2:
+            _, scale = bounds
+            observations /= scale
+        elif len(bounds) == 4:
+            _, iscale, _, jscale = bounds
+            observations[:, 0] /= iscale
+            observations[:, 1] /= jscale
+
+        plt.clf()
+        fig = plt.gcf()
+        fig.set_size_inches(5, 5)
+        plt.imshow(self._background * .5,
+            extent=self._extent, cmap=plt.cm.binary, vmin=0, vmax=1)
+        import numpy as np
+        energy = (energy - energy.min()) / (energy.max()-energy.min())
+        observations = observations.squeeze()
+        colors = plt.cm.jet(energy)
+        plt.plot(observations[:,1], observations[:,0], c='black', zorder=10)
+        plt.scatter(observations[:,1], observations[:,0], c=colors, zorder=20)
+        plt.axis('off')
+        plt.title(title)
+        img = plot2img(fig, remove_margins=self._remove_margins)
+
+        imageio.imsave(savepath, img)
+        print(f'Saved 1 energy plot sample to: {savepath}')
+
 #-----------------------------------------------------------------------------#
 #---------------------------------- rollouts ---------------------------------#
 #-----------------------------------------------------------------------------#

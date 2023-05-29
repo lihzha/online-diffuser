@@ -70,7 +70,7 @@ class OnlineTrainer:
                 if it <= 3000:
                     state = self.env.state_vector().copy()
                     if t % self.max_path_length//3 == 0:
-                        target = self.sample_target(4)
+                        target = self.sample_target(5)
                         self.env.set_target(target)
                         cond_targ = np.zeros(self.dataset.observation_dim)
                         cond_targ[:2] = target
@@ -178,7 +178,7 @@ class OnlineTrainer:
             rollout = [observation.copy()]
             fake_rollout = 0
             for t in range(self.max_path_length):
-                if t % self.traj_len == 0:
+                if t % 20 == 0:
                     cond[0] = self.env.state_vector().copy()
                     cnt = 0
                     samples = self.policy(cond,batch_size=10)
@@ -205,7 +205,7 @@ class OnlineTrainer:
                     xy = next_observation[:2]
                     dist = np.linalg.norm(xy-cond_targ[:2])
                     print(
-                        f'it: {t} | panda | dist: {dist}'
+                        f'it: {i} | panda | dist: {dist}'
                     )
 
                 if terminated:
@@ -383,7 +383,9 @@ class OnlineTrainer:
         target_state[:,0,0] = target_x
         target_state[:,0,1] = target_y
         energy = self.model.get_target_energy(target_state, self.device)
-        return target_state[np.argmax(energy)].squeeze()[:2]
+        energy_med = np.median(energy)
+        idx = np.where(energy==energy_med)[0]
+        return target_state[idx].squeeze()[:2]
     
         # target = self.target_set[sample_idx//self.target_set.shape[1], sample_idx-sample_idx//self.target_set.shape[1]*self.target_set.shape[1]][:2]
         
