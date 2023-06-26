@@ -5,11 +5,12 @@ import torch
 import einops
 import pdb
 
-from ..utils.arrays import batch_to_device, to_np, to_device, apply_dict
+from ..utils.arrays import new_batch_to_device, to_np, to_device, apply_dict
 from ..utils.timer import Timer
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import cv2
+# from torch.nn.utils.rnn import pack_padded_sequence
 
 def cycle(dl):
     while True:
@@ -94,13 +95,27 @@ class Trainer(object):
             self.load(loadpath)
 
 
-    def create_dataloader(self, batch_size=None):
-        if batch_size == None:
+    def create_dataloader(self, batch_size=None, sampler=None):
+        # def my_collate(batch):
+        #     traj = torch.as_tensor([b.trajectories for b in batch], dtype=torch.float32)
+        #     path_length = torch.as_tensor([b.path_lengths for b in batch],dtype=torch.int)
+        #     packed_traj = pack_padded_sequence(traj, path_length, batch_first=True, enforce_sorted=False)
+        #     conditions = {key: torch.as_tensor([b.conditions[key] for b in batch], dtype=torch.float32) for key in batch[0].conditions.keys()}
+            # return (packed_traj, conditions)
+        def my_collate(batch):
+            assert len(batch) == 1
+            traj = batch[0].trajectories
+            cond = batch[0].conditions
+            return (traj, cond)
+        if batch_size == None and sampler == None:
             self.dataloader = cycle(torch.utils.data.DataLoader(
-                    self.dataset, batch_size=self.batch_size, num_workers=1, shuffle=True, pin_memory=True))
-        else:
+                    self.dataset, batch_size=self.batch_size, num_workers=1, shuffle=True, pin_memory=True, collate_fn=my_collate))
+        elif batch_size != None and sampler == None:
             self.dataloader = cycle(torch.utils.data.DataLoader(
                     self.dataset, batch_size=batch_size, num_workers=1, shuffle=True, pin_memory=True))
+        elif sampler != None:
+            self.dataloader = cycle(torch.utils.data.DataLoader(
+                    self.dataset, batch_size=self.batch_size, num_workers=1, pin_memory=True, sampler=sampler))
         self.dataloader_vis = cycle(torch.utils.data.DataLoader(
                 self.dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True))
 
@@ -122,9 +137,9 @@ class Trainer(object):
         timer = Timer()
         for step in range(n_train_steps):
             for i in range(self.gradient_accumulate_every):
-                if step==0:
-                    batch = next(self.dataloader)
-                    batch = batch_to_device(batch, device=self.device)
+
+                batch = next(self.dataloader)
+                batch = new_batch_to_device(batch, device=self.device)
 
                 loss, infos = self.diffusion_model.loss(*batch)
                 loss = loss / self.gradient_accumulate_every
@@ -148,7 +163,7 @@ class Trainer(object):
                 print(f'{self.step}: {loss:8.4f} | {infos_str} | t: {timer():8.4f}')
 
             if self.sample_freq and self.step % self.sample_freq == 0:
-                # self.render_reference(self.n_reference)
+                self.render_reference(self.n_reference)
                 self.render_samples(n_samples=self.n_samples)
 
             self.step += 1
@@ -193,7 +208,7 @@ class Trainer(object):
 
         ## get a temporary dataloader to load a single batch
         dataloader_tmp = cycle(torch.utils.data.DataLoader(
-            self.dataset, batch_size=batch_size, num_workers=0, shuffle=True, pin_memory=True
+            self.dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True
         ))
         batch = dataloader_tmp.__next__()
         dataloader_tmp.close()
@@ -206,6 +221,7 @@ class Trainer(object):
         # normed_observations = trajectories[:, :, self.dataset.action_dim:]
         normed_observations = trajectories
         observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
+        observations = observations.squeeze(0)
 
         # from diffusion.datasets.preprocessing import blocks_cumsum_quat
         # # observations = conditions + blocks_cumsum_quat(deltas)
@@ -216,34 +232,69 @@ class Trainer(object):
         # observations = blocks_add_kuka(observations)
         ####
         savepath = os.path.join(self.logdir, f'_sample-reference.png')
-        render_idx = np.random.choice(observations.shape[0], 9, replace=False)
-        fig = plt.figure(figsize=(12, 12))
-        img_idx = 331
-        for i in render_idx: 
-            ax = fig.add_subplot(img_idx,projection='3d')
-            img_idx += 1
-            ax.plot3D(observations[i,:,0], observations[i,:,1],observations[i,:,2])
+        self.renderer.composite(savepath, observations, ncol=1)
+        # render_idx = np.random.choice(observations.shape[0], 9, replace=False)
+        # fig = plt.figure(figsize=(12, 12))
+        # img_idx = 331
+        # for i in render_idx: 
+        #     ax = fig.add_subplot(img_idx,projection='3d')
+        #     img_idx += 1
+        #     ax.plot3D(observations[i,:,0], observations[i,:,1],observations[i,:,2])
     
-        plt.savefig(savepath)
+        # plt.savefig(savepath)
 
     def render_samples(self, batch_size=2, n_samples=2):
         '''
             renders samples from (ema) diffusion model
         '''
         n_samples = 10
-        batch_size = 1
-        for i in range(batch_size):
+
+        for i in range(3):
 
             ## get a single datapoint
             batch = self.dataloader_vis.__next__()
             conditions = batch.conditions
-            conditions[0] = np.array([1,1,0,0])[None]
-            conditions[batch.trajectories.shape[1]-1] = np.array([1,8,0,0])[None]
+            trajectories = batch.trajectories
+            trajectories = trajectories.squeeze(0)
+            # conditions = conditions[0]
+            # for key in conditions.keys():
+            #     conditions[key] = conditions[key].squeeze(0)
+            # conditions[0] = np.array([2.3879678,  7.8236537, -5.1257896,  0.3430762])[None]
+            # conditions[batch.trajectories.shape[1]-1] = np.array([5.0155005, 2.0509837, 0,0])[None]
+            # conditions[0] = np.array([2.3879678,  7.8236537, 0,0])[None]
+            
+            # conditions[199] = np.array([ 3,5 , 0,0])[None]
+            # conditions[399] = np.array([ 5.0875463 ,  7  , 0,0])[None]
+            # conditions[batch.trajectories.shape[1]-1] = np.array([ 2.962306  ,  4.9593716 , -0.10166378, -3.3860238 ])[None]
+            # conditions[batch.trajectories.shape[1]-1] = np.array([5.0155005, 2.0509837, 0, 0])[None]
+            # conditions[batch.trajectories.shape[1]-1] = np.array([5.0155005, 2.0509837, 1.4165164, 1.298833 ])[None]
+            # conditions[0] = np.array([ 2.9608955 ,  4.9232106 , -0.14104062, -3.6161234 ])[None]
+            # conditions[batch.trajectories.shape[1]-1] = np.array([5.0155005, 2.0509837, 1.4165164, 1.298833 ])[None]
+            
+            # conditions[0] = np.array([4.9572325, 6.058691 , 1.6279856, 1.651029 ])[None]
+            # conditions[batch.trajectories.shape[1]-1] = np.array([ 5.0875463 ,  9.720057  , -0.79894155, -2.8105795 ])[None]
+
+            if i == 0:
+                conditions[0] = np.array([1,1,0,0])[None]
+                conditions[trajectories.shape[1]-1] = np.array([1,8,0,0])[None]
+
+            elif i == 1:
+                conditions[0] = np.array([6,1.8,0,0])[None]
+                conditions[trajectories.shape[1]-1] = np.array([3.,3.,0.,0.])[None]
+            
+            elif i == 2:
+                conditions[0] = np.array([1.,8.,0,0])[None]
+                conditions[trajectories.shape[1]-1] = np.array([5.,8.,0.,0.])[None]
+
             conditions[0] = self.dataset.normalizer.normalize(conditions[0], 'observations')
-            conditions[batch.trajectories.shape[1]-1] = self.dataset.normalizer.normalize(conditions[batch.trajectories.shape[1]-1], 'observations')
+            conditions[trajectories.shape[1]-1] = self.dataset.normalizer.normalize(conditions[trajectories.shape[1]-1], 'observations')
             conditions[0] = torch.tensor(conditions[0])
-            conditions[batch.trajectories.shape[1]-1] = torch.tensor(conditions[batch.trajectories.shape[1]-1])
-            conditions = to_device(batch.conditions, self.device)
+            conditions[trajectories.shape[1]-1] = torch.tensor(conditions[trajectories.shape[1]-1])
+
+            # conditions[399] = self.dataset.normalizer.normalize(conditions[399], 'observations')
+            # conditions[399] = torch.tensor(conditions[399])
+
+            conditions = to_device(conditions, self.device)
 
             ## repeat each item in conditions `n_samples` times
             conditions = apply_dict(
@@ -255,24 +306,24 @@ class Trainer(object):
             ## [ n_samples x horizon x (action_dim + observation_dim) ]
             samples = self.diffusion_model.conditional_sample(conditions, train_ddim=True)
             samples = to_np(samples.trajectories)
+            # samples = np.concatenate((samples[0],samples[1,1:]),axis=0)[None]
             normed_observations = samples
 
             ## [ n_samples x (horizon + 1) x observation_dim ]
             observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
-            # observations = observations[:,0,:][None]
-            # if i == 0:
-            #     obs = observations
-            # else:
-            #     obs = np.concatenate((obs,observations))
-        # observations = observations.reshape((n_samples, 640, 4))
-        savepath = os.path.join(self.logdir, f'sample-{self.step}-{0}.png')
-        self.renderer.composite(savepath, observations,ncol=5)
+            for j in range(2):
+                obs = observations[:,:,j*4:(j+1)*4]
+
+                savepath = os.path.join(self.logdir, f'sample-{self.step}-{i}-{j}.png')
+                self.renderer.composite(savepath, obs,ncol=5)
     
 
     def render_buffer(self, batchsize, obs):
         
         savepath = os.path.join(self.logdir, f'sample_reference-{self.step}.png')
-        obs_num = obs.shape[0]     
+        # obs_num = obs.shape[0]  
+        obs_num = len(obs.keys())
+
         idx = np.random.choice(obs_num, batchsize, replace=True)
 
         self.renderer.composite(savepath, obs[idx], ncol=5)

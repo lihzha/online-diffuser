@@ -30,8 +30,8 @@ def to_device(x, device=DEVICE):
 		return x.to(device)
 	elif type(x) is dict:
 		return {k: to_device(v, device) for k, v in x.items()}
-	else:
-		print(f'Unrecognized type in `to_device`: {type(x)}')
+	elif type(x) == np.ndarray:
+		return torch.as_tensor(x).to(device)
 		# pdb.set_trace()
 	# return [x.to(device) for x in xs]
 
@@ -94,6 +94,10 @@ def batch_to_device(batch, device='cuda:0'):
         for field in batch._fields
     ]
     return type(batch)(*vals)
+
+def new_batch_to_device(batch, device='cuda:0'):
+    vals = (to_device(batch[0], device), to_device(batch[1], device))
+    return vals
 
 def _to_str(num):
 	if num >= 1e6:

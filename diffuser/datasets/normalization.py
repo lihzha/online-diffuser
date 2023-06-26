@@ -195,7 +195,12 @@ class LimitsNormalizer(Normalizer):
 
     def normalize(self, x):
         ## [ 0, 1 ]
-        x = (x - self.mins) / (self.maxs - self.mins)
+        try:
+            x = (x - self.mins) / (self.maxs - self.mins)
+        except:
+            mins = np.tile(self.mins,2)
+            maxs = np.tile(self.maxs,2)
+            x = (x - mins) / (maxs - mins)
         ## [ -1, 1 ]
         x = 2 * x - 1
         return x
@@ -212,7 +217,12 @@ class LimitsNormalizer(Normalizer):
         ## [ -1, 1 ] --> [ 0, 1 ]
         x = (x + 1) / 2.
 
-        return x * (self.maxs - self.mins) + self.mins
+        try:
+            return x * (self.maxs - self.mins) + self.mins
+        except:
+            mins = np.tile(self.mins,2)
+            maxs = np.tile(self.maxs,2)
+            return x * (maxs - mins) + mins
 
 class SafeLimitsNormalizer(LimitsNormalizer):
     '''

@@ -4,6 +4,7 @@ import torch
 from torch import nn
 import pdb
 import diffuser.utils as utils
+from torch.nn.utils.rnn import pad_packed_sequence
 from .helpers import (
     cosine_beta_schedule,
     extract,
@@ -14,6 +15,7 @@ from .helpers import (
     pair_to_traj,
     get_state_from_traj,
     get_traj_from_state,
+    extend,
     Losses,
 )
 import warnings
@@ -183,7 +185,7 @@ class GaussianDiffusion(nn.Module):
             x_recon = self.predict_start_from_noise(x, t=t, noise=grad)
         else:
             noise_traj = self.model.sample(x,cond,t)
-            
+            noise_traj *= extract(self.sqrt_one_minus_alphas_cumprod, t, noise_traj.shape)
             # if (t<=self.state_noise_start_t).any():
             #     x_state = get_state_from_traj(x)
             #     t_state = t.repeat(self.traj_len)
@@ -226,7 +228,12 @@ class GaussianDiffusion(nn.Module):
         if grad is not None:
             x_recon = self.predict_start_from_noise(x_t, t=t, noise=grad)
         else:
+            # buffer = self.q_sample(x_start=cond[range(self.traj_len)], t=t)
+            # noise_buffer = self.model.sample(buffer, cond, t)
             noise_traj = self.model.sample(x_t,cond,t)
+            noise_traj *= extract(self.sqrt_one_minus_alphas_cumprod, t, noise_traj.shape)
+            # if (t>=-1).any():
+            #     noise = 1*noise_buffer + noise_traj*0
             # if self.cnt <= 3000:
             #     start_cond = (t<=self.state_noise_start_t).any() or (t>=self.n_timesteps-self.state_noise_start_t-30).any()
             # else:
@@ -283,6 +290,11 @@ class GaussianDiffusion(nn.Module):
         device = self.betas.device
         batch_size = shape[0]
         x = torch.randn(shape, device=device)
+        # batch_size = 1
+        # x = torch.randn((1,400,4), device=device)
+        # x[0,0] = cond[0]
+        # x[0,199] = cond[199]
+        # x[0,399] = cond[399]
         # if batch_size == 1:
         #     x = torch.randn((4, 160, 4), device=device)
         #     x[1,0] = x[0,-1]
@@ -304,6 +316,7 @@ class GaussianDiffusion(nn.Module):
         #     batch_size = 4*batch_size
         #     x = x.reshape((batch_size, 160, 4))
         # x = pair_consistency(x)
+        x = extend(x, cond)
         x = apply_conditioning(x, cond, self.action_dim)
         # x = new_apply_conditioning(x, cond, self.action_dim)
         x = self.to_torch(x)
@@ -313,23 +326,9 @@ class GaussianDiffusion(nn.Module):
             prev_t = make_timesteps(batch_size, prev_t, device)
             x = self.n_step_guided_ddim_sample(x, cond, t, prev_t, **sample_kwargs)
             # x = new_apply_conditioning(x, cond, self.action_dim)
-            # if batch_size == 4:
-            #     x[1,0] = x[0,-1]
-            #     x[2,0] = x[1,-1]
-            #     x[3,0] = x[2,-1]
-            #     x[-1,-1] = cond[159]
-            #     x[0,0] = cond[0]
-            # else:
-            #     x = x.reshape((-1,4,160,4))
-            #     x[:,1,0] = x[:,0,-1]
-            #     x[:,2,0] = x[:,1,-1]
-            #     x[:,3,0] = x[:,2,-1]
-            #     try:
-            #         x[:,-1,-1] = cond[159]
-            #     except:
-            #         pass
-            #     x[:,0,0] = cond[0]
-            #     x = x.reshape((batch_size, 160, 4))
+            # x[0,0] = cond[0]
+            # x[0,199] = cond[199]
+            # x[0,399] = cond[399]
             x = apply_conditioning(x, cond, self.action_dim)
             # x = pair_consistency(x)
             if return_chain: chain.append(x)
@@ -393,7 +392,9 @@ class GaussianDiffusion(nn.Module):
         #     shape = (self.traj_len, horizon, self.transition_dim)
         # else:
         #     shape = (len(cond[0]), horizon, self.transition_dim)
-        shape = (len(cond[0]), self.traj_len, self.transition_dim)
+
+        # shape = (len(cond[0]), max(cond.keys())+1, self.transition_dim)
+        shape = (len(cond[0]), max(cond.keys())+1, self.transition_dim//2)
         if train_ddim:
             return self.ddim_sample_loop(shape, cond, **self.sample_kwargs)
         if train_ddim == False:
@@ -420,11 +421,14 @@ class GaussianDiffusion(nn.Module):
     def p_losses(self, x_start, cond, t):
 
         # Train trajectory model
-
-        noise = torch.randn_like(x_start) 
+        x_start = extend(x_start, cond)
+        noise = torch.randn_like(x_start)
+        # mask = ~(x_start.sum(-1) == 0)[:,:,None]
+        # noise = noise * mask
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         if x_noisy.shape[1] != 1:
             x_noisy = apply_conditioning(x_noisy, cond, self.action_dim)
+            # x_noisy = x_noisy * mask
             x_recon = self.model(x_noisy, cond, t)
         else:
             x_recon = self.state_model(x_noisy, cond, t)
@@ -432,6 +436,7 @@ class GaussianDiffusion(nn.Module):
         assert noise.shape == x_recon.shape
 
         if self.predict_epsilon:
+            x_recon *= extract(self.sqrt_one_minus_alphas_cumprod, t, x_recon.shape)
             loss, info = self.loss_fn(x_recon, noise)
         else:
             x_recon = apply_conditioning(x_recon, cond, self.action_dim)
@@ -473,15 +478,16 @@ class GaussianDiffusion(nn.Module):
 
         return loss, info    # only backward once loss3
 
-    def loss(self, x, *args):
+    def loss(self, x, cond):
 
         # t = torch.randint(1, self.ddim_timesteps+1, (batch_size,), device=x.device).long()
         # t *= self.n_timesteps // self.ddim_timesteps
         # t -= 1
+        # unpacked_x = pad_packed_sequence(x, batch_first=True)[0]
         batch_size = len(x)
         t = torch.randint(0, self.n_timesteps, (batch_size,), device=x.device).long()
-        x = x.to(torch.float)
-        return self.p_losses(x, *args, t)
+        # x = x.to(torch.float)
+        return self.p_losses(x, cond, t)
 
     def forward(self, cond, *args, **kwargs):
         return self.conditional_sample(cond, *args, **kwargs)

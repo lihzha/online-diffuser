@@ -5,7 +5,7 @@ base = {
 
     'online_training': {
 
-        'dirname':'only_hardcoded_3000_mid_value_sampling_gtdensity',
+        'dirname':'change_coef_f',
 
         # environment:
         'env_wrapper': 'environments.d4rl_env_wrapper',
@@ -17,7 +17,7 @@ base = {
         'horizon': 1,
         'normalizer': 'LimitsNormalizer',
         'max_path_length': 800,
-        'max_n_episodes': 5000,
+        'max_n_episodes': 3000,
         'predict_type': 'obs_only',
         'device': 'cuda:2',
 
@@ -43,7 +43,7 @@ base = {
         'loss_discount': 1,
 
         # trainer
-        'traj_batchsize': 32,
+        'traj_batchsize': 1,
         'state_batchsize': 512,
         'learning_rate': 2e-4,
         'gradient_accumulate_every': 2,
@@ -55,8 +55,8 @@ base = {
         'bucket': None,
         'n_reference': 50,
         'n_samples': 1,
-        'loadpath_traj': '/home/lihan/diffuser-maze2d/logs/maze2d-large-v1/diffusion/5_29_only_hardcoded_3000_mid_value_sampling_gtdensity/traj/state_0.pt',
-        'loadpath_state': '/home/lihan/diffuser-maze2d/logs/maze2d-large-v1/diffusion/5_25_train_seperately/state/state_280000.pt',
+        'loadpath_traj': None,
+        'loadpath_state': None,
 
         # plan
         # 'guide': 'sampling.EBM_DensityGuide',
@@ -69,7 +69,7 @@ base = {
         'verbose': True,
 
         # online trainer
-        'train_freq': 500,
+        'train_freq': 1000,
         'iterations': 300001,
         'traj_len': 256,
 

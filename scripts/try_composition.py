@@ -63,7 +63,7 @@ def main():
     dataset_traj = dataset_config(horizon=args.traj_len)
 
 
-    observation_dim = 2*env.observation_space.shape[0]
+    observation_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
     if args.predict_type == 'obs_only':
@@ -147,10 +147,10 @@ def main():
     )
 
     policy = policy_config()
-
-    _online_trainer = OnlineTrainer(state_model, trajectory_model, trainer_traj, trainer_state, env, dataset_traj, dataset_state, policy, args.predict_type)
-    _online_trainer.train(args.train_freq, args.iterations)
         
+    import numpy as np
+    train_data = np.load('a3.npy')
+    
 
 if __name__ == "__main__":
     

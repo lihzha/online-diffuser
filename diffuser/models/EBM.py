@@ -42,5 +42,6 @@ class EBMDiffusionModel(nn.Module):
         target_pair = torch.tensor(target_pair, device=device, dtype=torch.float32)
         t = torch.zeros(target_pair.shape[0], device=device, dtype=torch.float32)
         cond = None
+        target_pair = torch.cat((target_pair, target_pair), dim=2)
         energy = self.point_energy(target_pair, cond, t).mean(-1)
         return energy.detach().cpu().numpy()

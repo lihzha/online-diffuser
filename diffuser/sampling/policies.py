@@ -21,10 +21,15 @@ class GuidedPolicy:
 
     def __call__(self, conditions, batch_size=1, verbose=True):
 
-        conditions = self._format_conditions(conditions, batch_size)
+        # conditions = self._format_conditions(conditions, batch_size)
+        if len(conditions[0].shape) > 1:
+            conditions = {k: self.normalizer.normalize(v, 'observations') for k, v in conditions.items()}
+        else:
+            conditions = {k: self.normalizer.normalize(v, 'observations')[None] for k, v in conditions.items()}
+        conditions = utils.to_torch(conditions, dtype=torch.float32, device=self.device)
 
         ## run reverse diffusion process
-        samples = self.diffusion_model(conditions,  verbose=verbose, **self.sample_kwargs)
+        samples = self.diffusion_model(conditions, verbose=verbose, **self.sample_kwargs)
         # samples = self.diffusion_model(conditions)
         trajectories = utils.to_np(samples.trajectories)
         # trajectories = samples.detach().cpu().numpy()

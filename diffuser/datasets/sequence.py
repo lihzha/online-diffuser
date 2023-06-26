@@ -35,16 +35,35 @@ class SequenceDataset(torch.utils.data.Dataset):
 
     def set_fields(self, fields):
         self.fields = copy.deepcopy(fields)
-        if self.horizon != 1:
-            self.fields.remove_short_episodes(self.horizon)
-            self.fields._count = len(self.fields['path_lengths'])
+        # if self.horizon != 1:
+        #     self.fields.remove_short_episodes(self.horizon)
+        #     self.fields._count = len(self.fields['path_lengths'])
         self.fields.finalize()
         self.fields.observation_dim = self.observation_dim
         self.fields.action_dim = self.action_dim
         self.n_episodes = self.fields.n_episodes
-        self.path_lengths = self.fields['path_lengths']
+        # self.path_lengths = self.fields['path_lengths']
         self.normalize()
         
+
+    # def normalize(self, keys=None):
+    #     '''
+    #         normalize fields that will be predicted by the diffusion model
+    #     '''
+    #     if self.predict_type == 'obs_only':
+    #         keys=['observations']
+    #     elif self.predict_type == 'action_only':
+    #         keys=['actions']
+    #     elif self.predict_type == 'joint':
+    #         keys=['observations', 'actions']
+    #     else:
+    #         raise NotImplementedError
+    #     for key in keys:
+    #         array = self.fields[key].reshape(self.n_episodes*self.max_path_length, -1)
+    #         normed = self.normalizer(array, key)
+    #         self.fields[f'normed_{key}'] = normed.reshape(self.n_episodes, self.max_path_length, -1)
+    #         for i in range(self.n_episodes):
+    #             self.fields[f'normed_{key}'][i,self.path_lengths[i]:] = 0.
 
     def normalize(self, keys=None):
         '''
@@ -58,11 +77,18 @@ class SequenceDataset(torch.utils.data.Dataset):
             keys=['observations', 'actions']
         else:
             raise NotImplementedError
+        
         for key in keys:
-            array = self.fields[key].reshape(self.n_episodes*self.max_path_length, -1)
-            normed = self.normalizer(array, key)
-            self.fields[f'normed_{key}'] = normed.reshape(self.n_episodes, self.max_path_length, -1)
-
+            first = True
+            for k in self.fields[key].keys():
+                shape = self.fields[key][k].shape
+                array = self.fields[key][k].reshape((-1,shape[-1]))
+                normed = self.normalizer(array, key)
+                if first:
+                    self.fields[f'normed_{key}'] = {k: normed.reshape(shape)}
+                    first = False
+                else:
+                    self.fields[f'normed_{key}'][k] = normed.reshape(shape)
 
     def make_indices(self, path_lengths, horizon):
         '''
@@ -86,6 +112,23 @@ class SequenceDataset(torch.utils.data.Dataset):
         indices = np.array(indices)
         return indices
 
+    def make_uneven_indices(self, path_lengths):
+        '''
+            makes indices for sampling from dataset;
+            each index maps to a datapoint
+        '''
+        indices = []
+        for i, path_length in enumerate(path_lengths):
+            if path_length % 4 != 0:
+                indices.append((i,0,(path_length // 4)*4))
+                self.path_lengths[i] = (path_length // 4)*4
+            else:
+                indices.append((i,0,path_length))
+        indices = np.array(indices)
+        self.fields['path_lengths'] = self.path_lengths
+        return indices
+
+
     def make_new_indices(self, path_lengths, horizon):
         '''
             makes non-overlapping indices for computing energy;
@@ -93,19 +136,16 @@ class SequenceDataset(torch.utils.data.Dataset):
         '''
         indices = []
         for i, path_length in enumerate(path_lengths):
-            max_start = min(path_length - 1, self.max_path_length - horizon)
-            if max_start != 0:
-                for start in range(0,max_start,horizon):
-                    end = start + horizon
-                    indices.append((i, start, end)) 
-                if end < path_length-1:
-                    indices.append((i, path_length-horizon, path_length)) 
-            else:
-                end = horizon
-                indices.append((i,0,end))
+            for start in range(0, path_length, horizon):
+                indices.append((i,start, start+horizon))
+            if start != path_length:
+                indices.append((i,start, path_lengths))
         indices = np.array(indices)
         return indices
 
+    def make_fix_indices(self):
+        self.indices = self.fields['index']
+        return self.indices.copy()
 
     def get_conditions(self, observations):
         '''
@@ -116,43 +156,55 @@ class SequenceDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.indices)
 
-    def __getitem__(self, idx, eps=1e-4):
-        path_ind, start, end = self.indices[idx]
+    # def __getitem__(self, idx, eps=1e-4):
+    #     path_ind, start, end = self.indices[idx]
 
-        if self.predict_type == 'joint':
-            observations = self.fields.normed_observations[path_ind, start:end]
-            actions = self.fields.normed_actions[path_ind, start:end]
-            trajectories = np.concatenate([actions, observations], axis=-1)
-        elif self.predict_type == 'obs_only':
-            observations = self.fields.normed_observations[path_ind, start:end]
-            trajectories = observations
-        elif self.predict_type == 'action_only':
-            actions = self.fields.normed_actions[path_ind, start:end]
-            trajectories = actions
-        conditions = self.get_conditions(observations)
-        batch = Batch(trajectories, conditions)
-        return batch
+    #     if self.predict_type == 'joint':
+    #         observations = self.fields.normed_observations[path_ind, start:end]
+    #         actions = self.fields.normed_actions[path_ind, start:end]
+    #         trajectories = np.concatenate([actions, observations], axis=-1)
+    #     elif self.predict_type == 'obs_only':
+    #         observations = self.fields.normed_observations[path_ind, start:end]
+    #         padded_observations = np.zeros((self.max_path_length, self.observation_dim))
+    #         path_length = observations.shape[0]
+    #         padded_observations[:path_length] = observations
+    #         trajectories = padded_observations
+    #         # trajectories = observations
+    #     elif self.predict_type == 'action_only':
+    #         actions = self.fields.normed_actions[path_ind, start:end]
+    #         trajectories = actions
+    #     conditions = self.get_conditions(padded_observations, path_length-1)
+    #     batch = Batch(trajectories, conditions, path_length)
+    #     return batch
     
-    def get_obs(self, idx_set, indices, eps=1e-4):
-        first = True
-        for idx in idx_set:
-            path_ind, start, end = indices[idx]
+    def __getitem__(self, idx, eps=1e-4):
+
+        if self.predict_type == 'obs_only':
+            real_idx = self.indices[idx]
+            observations = self.fields.normed_observations[real_idx]
+        else:
+            raise NotImplementedError
+        conditions = self.get_batch_conditions(observations)
+        batch = Batch(observations, conditions)
+        return batch
+
+
+    def get_all_item(self):
+        for idx in range(self.indices.shape[0]):
+            path_ind, start, end = self.indices[idx]
             if self.predict_type == 'joint':
-                observations = self.fields.normed_observations[path_ind, start:end]
-                actions = self.fields.normed_actions[path_ind, start:end]
-                trajectories = np.concatenate([actions, observations], axis=-1)
+                raise NotImplementedError
             elif self.predict_type == 'obs_only':
                 observations = self.fields.normed_observations[path_ind, start:end]
-                trajectories = observations
+                if idx == 0:
+                    all_obs = observations[None]
+                else:
+                    all_obs = np.concatenate((all_obs, observations[None]), axis=0)
             elif self.predict_type == 'action_only':
-                actions = self.fields.normed_actions[path_ind, start:end]
-                trajectories = actions
-            if first:
-                traj = trajectories[None,:]
-                first = False
-            else:
-                traj = np.concatenate((traj, trajectories[None,:]), axis=0)
-        return traj
+                raise NotImplementedError
+        
+        return all_obs
+    
 
 class GoalDataset(SequenceDataset):
 
@@ -162,7 +214,14 @@ class GoalDataset(SequenceDataset):
         '''
         return {
             0: observations[0],
-            self.horizon - 1: observations[-1],
+            self.horizon-1: observations[-1],
+        }
+
+    def get_batch_conditions(self, observations):
+
+        return {
+            0: observations[:,0],
+            observations.shape[1]-1: observations[:,-1]
         }
 
 class ValueDataset(SequenceDataset):

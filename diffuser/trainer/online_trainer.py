@@ -1,6 +1,8 @@
 import copy
 import numpy as np
 import os
+# from diffuser.utils.sampler import WeightedRandomSampler
+# from torch.utils.data import WeightedRandomSampler
 
 class OnlineTrainer:
     def __init__(self, state_model, trajectory_model, trainer_traj, trainer_state, env, dataset_traj, dataset_state, policy, predict_type):
@@ -26,23 +28,38 @@ class OnlineTrainer:
         assert self.max_path_length >= self.traj_len, 'Wrong traj_len!'
         self.horizon = dataset_state.horizon
         self.trainer.diffusion_model.sample_kwargs = self.policy.sample_kwargs
-        # a = np.load('one_traj.npy')
+        # a = np.load('755_280.npy')
+        # a = np.load('/home/lihan/diffuser-maze2d/logs/maze2d-large-v1/diffusion/5_29_only_hardcoded_3000_mid_value_sampling_gtdensity/traj/buffer_vis_traj.npy')
         # e = self.format_episode(None,np.zeros((200,4)),[a],np.zeros((200,1)),np.zeros((200,1)))
         # self.buffer.add_path(e)
         # a = np.load('try2.npy')
         # e = self.format_episode(None,np.zeros((200,4)),[a],np.zeros((200,1)),np.zeros((200,1)))
         # self.buffer.add_path(e)
         # a = a.reshape((100,200,4))[:34]
-        # for i in range(34):
-        #     e = self.format_episode(None,np.zeros((200,4)),[a[i]],np.zeros((200,1)),np.zeros((200,1)))
+        # for i in range(a.shape[0]):
+        #     e = self.format_episode(None,np.zeros((280,4)),[a[i]],np.zeros((280)),np.zeros((280)))
         #     self.buffer.add_path(e)
-        # num_trainsteps_traj = self.process_dataset(self.dataset)
+        # _ = self.process_dataset(self.dataset)
         # self.save_buffer(self.trainer.logdir)
-        # self.trainer.train(num_trainsteps_traj)     
+        # self.trainer.train(int(10e6))     
+        # cond_targ = np.zeros(self.dataset.observation_dim)
+        # cond_targ[:2] = [3,1]
+        # cond = {
+        #     280-1: cond_targ
+        # }
+        # cond[0] = np.array([6,1.8,0,0]).repeat(10,0)
+        # cond = {}
+        # cond[0] = a[2,0][None].repeat(10,0)
+        # cond[280*2-1] = a[0,-1][None].repeat(10,0)
+        # samples = self.policy(cond)
+        # samples = samples.observations
+        # self.trainer.renderer.composite('a.png',samples,ncol=5)
 
     def train(self, train_freq, iterations):
         """Online training scenerio."""
+        
         total_reward = 0
+
         for it in range(iterations):
             self.policy.diffusion_model.cnt = it
             episode = {}
@@ -66,14 +83,29 @@ class OnlineTrainer:
                 self.traj_len-1: cond_targ
             }
 
+            # if it > 2000:
+            #     energy = self.dataset.fields['energy']
+            #     idx = np.random.choice(energy.shape[0], 1, p=energy/energy.sum()).item()
+            #     epi = self.dataset.__getitem__(idx).trajectories
+            #     epi_last = epi[:,0].nonzero()[0][-1]
+            #     epi = epi[:epi_last+1]
+            #     epi = self.dataset.normalizer.unnormalize(epi, 'observations')
+            #     if epi_last > 150:
+            #         cond[range(125,275)] = epi[:150]
+            #     else:
+            #         cond[range(100,100+epi_last+1)] = epi
+
+            # epi = self.buffer['observations'][58]
+            # epi_last = epi[:,0].nonzero()[0][-1]
+            # # epi = self.dataset.normalizer.unnormalize(epi, 'observations')
+            # if epi_last > 150:
+            #     cond[range(125,275)] = epi[:150]
+            # else:
+            #     cond[range(100,100+epi_last+1)] = epi
+            
             for t in range(self.max_path_length):
-                if it <= 3000:
+                if it <= 10:
                     state = self.env.state_vector().copy()
-                    if t % self.max_path_length//3 == 0:
-                        target = self.sample_target(5)
-                        self.env.set_target(target)
-                        cond_targ = np.zeros(self.dataset.observation_dim)
-                        cond_targ[:2] = target
                     action = cond_targ[:2] - state[:2] + (0 - state[2:])
                 else:
                     if t % self.traj_len == 0:
@@ -84,6 +116,8 @@ class OnlineTrainer:
                         cnt = 0
                         samples = self.policy(cond)
                         obs_tmp = samples.observations
+                        obs_tmp = obs_tmp[:,:,4:]
+                        # self.trainer.renderer.composite('b.png',obs_tmp,ncol=1)
                         if obs_tmp.shape[0] == 1:
                             obs_tmp = obs_tmp.squeeze()
                         elif obs_tmp.shape[0] == 4:
@@ -100,7 +134,7 @@ class OnlineTrainer:
                 next_observation, reward, terminated, info = self.env.step(action)
                 
                 # cv2.imwrite('trial_rendering.png',self.env.render())
-                if np.linalg.norm((next_observation - observation)[:2]) < 1e-3 and it!=0:
+                if np.linalg.norm((next_observation - observation)[:2]) < 1e-3:
                     break
 
                 total_reward += reward
@@ -137,7 +171,7 @@ class OnlineTrainer:
                 observation = next_observation.copy()
                 print(t)
 
-            if len(obs) != 0:
+            if len(obs) >= 100:
                 if self.predict_type == 'joint':
                     episode = self.format_episode(actions, next_obs, obs, rew, terminals)
                 elif self.predict_type == 'obs_only':
@@ -146,6 +180,8 @@ class OnlineTrainer:
                     episode = self.format_episode(actions, None, None, rew, terminals)     
                 self.add_to_buffer(episode)     
 
+                # self.trainer.renderer.composite('b.png',np.array(episode['observations'])[None],ncol=1)
+            
             print("----------------",it,"round finished------------------")
             print("total_reward", total_reward)
             self.total_reward.append(total_reward)
@@ -157,8 +193,8 @@ class OnlineTrainer:
                 num_trainsteps_traj = self.process_dataset(self.dataset)
                 self.save_buffer(self.trainer.logdir)
                 self.trainer.train(num_trainsteps_traj)     
-                num_trainsteps_state = self.process_dataset(self.dataset_state)
-                self.trainer_state.train(num_trainsteps_state//2)            
+                # num_trainsteps_state = self.process_dataset(self.dataset_state)
+                # self.trainer_state.train(num_trainsteps_state//2)            
     
         print(self.total_reward)
 
@@ -238,13 +274,25 @@ class OnlineTrainer:
 
         episode = {}
         episode_length = len(rew)
+        if episode_length % 20 != 0:
+            episode_real_len = int((episode_length // 20 + 1) * 20)
+        else:
+            episode_real_len = int((episode_length // 20) * 20)
         if actions != None:
             episode['actions'] = np.array(actions).reshape((episode_length,-1))
         if obs != None:
-            episode['next_observations'] = np.array(next_obs).reshape((episode_length,-1))
-            episode['observations'] = np.array(obs).reshape((episode_length,-1))
-        episode['rewards'] = np.array(rew).reshape((episode_length,-1))
-        episode['terminals'] = np.array(terminals).reshape((episode_length,-1))
+            episode['next_observations'] = np.zeros((episode_real_len, self.dataset.observation_dim), dtype=np.float32)
+            episode['next_observations'][:episode_length] = np.array(next_obs).reshape((episode_length,-1))
+            episode['next_observations'][episode_length:] = episode['next_observations'][episode_length-1]
+            episode['observations'] = np.zeros((episode_real_len, self.dataset.observation_dim), dtype=np.float32)
+            episode['observations'][:episode_length] = np.array(obs).reshape((episode_length,-1))
+            episode['observations'][episode_length:] = episode['observations'][episode_length-1]
+        episode['rewards'] = np.zeros((episode_real_len,1))
+        episode['rewards'][:episode_length,0] = np.array(rew)
+        episode['rewards'][episode_length:,0] = np.array(rew)[-1]
+        episode['terminals'] = np.zeros((episode_real_len,1))
+        episode['terminals'][:episode_length,0] = np.array(terminals)
+        episode['terminals'][episode_length:,0] = np.array(terminals)[-1]
 
         return episode
 
@@ -256,126 +304,34 @@ class OnlineTrainer:
 
     def process_dataset(self, dataset):
         """Normalize and preprocess the training data."""
-
+        
         dataset.set_fields(self.buffer)
         self.policy.normalizer = dataset.normalizer
 
-        # if dataset.fields['observations'].shape[0] == 2:
-        #     num_trainsteps = 100000
-        # else:
-        #     obs_energy = self.compute_buffer_energy(dataset)
-        #     buffer_size = dataset.fields['observations'].shape[0]
-        #     if buffer_size <=100:
-        #         sample_size = buffer_size
-        #         num_trainsteps = 1000
-        #     else:
-        #         sample_size = buffer_size // 4
-        #         self.energy_sampling(dataset.fields, sample_size, obs_energy) 
-        #         print(f'Get {sample_size} trajectories for training !!!!')
-        #         num_trainsteps = sample_size * 10
-        
-        if self.policy.diffusion_model.cnt <= 1000:
-            num_trainsteps = 4000
-        else:
-            obs_energy = self.compute_buffer_energy(dataset)
-            buffer_size = dataset.fields['observations'].shape[0]
-            sample_size = buffer_size // 4
-            self.energy_sampling(dataset.fields, sample_size, obs_energy) 
-            print(f'Get {sample_size} trajectories for training !!!!')
-            num_trainsteps = sample_size * 10
-
         if dataset == self.dataset:
-            dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.traj_len)
-            if dataset.fields['observations'].shape[0] == 2:
-                self.trainer.create_dataloader(2)
-            else:
-                self.trainer.create_dataloader()
-            self.trainer.render_buffer(50, dataset.fields['observations'])
+            # dataset.indices = dataset.make_new_indices(dataset.fields['path_lengths'], self.traj_len)
+            # dataset.indices = dataset.make_uneven_indices(dataset.fields['path_lengths'])
+            # normed_obs = dataset.get_all_item()
+            # energy = self.compute_energy('both',normed_obs)
+            # sampler = WeightedRandomSampler(weights=energy, num_samples=self.trainer.batch_size, replacement=False)
+            # self.trainer.create_dataloader(sampler=sampler)
+            dataset.indices = dataset.make_fix_indices()
+            self.trainer.create_dataloader()
+            # self.trainer.render_buffer(10, dataset.fields['observations'])
         elif dataset == self.dataset_state:
             dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.horizon)
-            self.trainer_state.create_dataloader()
+            # normed_obs = dataset.get_all_item()
+            # energy = self.compute_energy('state', normed_obs)
+            # sampler = WeightedRandomSampler(weights=energy, num_samples=self.trainer.batch_size)
+            self.trainer_state.create_dataloader(sampler=None)
             self.trainer_state.render_buffer(10, dataset.fields['observations'])
         # num_trainsteps = min(sample_size * 4, 4000)
+        # num_trainsteps = dataset.fields['normed_observations'].shape[0] * 5
+        num_trainsteps = 3000
         return num_trainsteps
     
-    def sample_data(self, fields, sample_size):
-        """Sample training data from fields."""
-
-        _dict = fields._dict
-        obs = _dict['observations']
-        obs_dim = obs.shape[0]
-
-        # index = np.zeros(obs_dim,dtype=np.int32)
-        # for i in range(obs_dim):
-        #     index[i] = obs[i,:,0].nonzero()[0][-1]
-        # traj_len = np.array([np.linalg.norm(obs[i][index[i]][:2] - obs[i][0][:2]) for i in range(obs_dim)])
-        # p_sample_len = traj_len / np.sum(traj_len)
-        # # traj_rewards = np.array([np.exp(_dict['rewards'][i].sum()) for i in range(_dict['rewards'].shape[0])])
-        # # p_sample = traj_rewards / np.sum(traj_rewards)
-
-        # if self.args_train.ebm:
-        #     if self.args_train.predict_action:
-        #         actions = _dict['actions']
-        #         trajectories = np.concatenate([actions, obs], axis=-1)
-        #     else:
-        #         trajectories = obs
-        #     trajectories = torch.tensor(trajectories, dtype=torch.float, device=self.args_train.device)
-        #     t = torch.full((trajectories.shape[0],), 0, device=self.args_train.device, dtype=torch.long)
-        #     energy = self.policy.diffusion_model.model.point_energy(trajectories, None, t).sum(-1)
-        #     p_sample_prob = (energy / energy.sum()).detach().cpu().numpy()
-        # else:
-        #     obs = torch.tensor(obs[:,:,:2], dtype=torch.float, device=self.args_train.device)
-        #     raw_density = gt_density(obs).squeeze(-1)
-        #     for i in range(obs_dim):
-        #         raw_density[i,index[i]+1:] = 0
-        #     p_sample_prob = 1 / (raw_density.sum(-1))
-        #     p_sample_prob = (p_sample_prob / p_sample_prob.sum()).detach().cpu().numpy()
-        
-        # p_sample = p_sample_len * p_sample_prob
-        # p_sample = p_sample / p_sample.sum()
-
-        # sample_index = np.random.choice(obs_dim,size=sample_size,replace=False,p=p_sample)
-        sample_index = np.random.choice(obs_dim,size=sample_size,replace=False)
-
-        for key in _dict.keys():
-            _dict[key] = _dict[key][sample_index]
-        fields._add_attributes()
-
-    def energy_sampling(self, fields, sample_size, energy):
-        """Sample training data from fields."""
-
-        _dict = fields._dict
-        obs = _dict['observations']
-        batchsize = obs.shape[0]
-        sample_index = np.random.choice(batchsize,size=sample_size,replace=True, p=energy/energy.sum())
-        for key in _dict.keys():
-            _dict[key] = _dict[key][sample_index]
-        fields._add_attributes() 
-
-    def compute_buffer_energy(self, dataset):
-        """Randomly sample targets according to energy."""
-
-        raw_obs = dataset.fields['observations']
-        energy_list = []
-        
-        for i in range(raw_obs.shape[0]):
-            # obs = raw_obs[i][:,None]
-            # obs = raw_obs[i][:,None]
-            last = raw_obs[i,:,0].nonzero()[0][-1]
-            obs = raw_obs[i,last][None,None]
-            energy = self.model.get_buffer_energy(obs, self.device).sum(-1)
-            energy_list.append(energy.detach().cpu().numpy().item())
-        energy_array = np.array(energy_list)
-        return energy_array
-
     def sample_target(self, batch_size):
 
-        # target_array, pair = self.env.sample_target(batch_size)
-        # target_state = np.zeros((batch_size, 1, self.dataset.observation_dim))
-        # target_state[:,0,:2] = target_array
-        # target_pair = np.zeros((batch_size, 2, self.dataset.observation_dim))
-        # target_pair[:,0,:2] = target_array
-        # target_pair[:,1,:2] = target_array + pair
         # np.array(([ 0.48975977,  0.50192666, -5.2262554 , -5.2262554 ],[ 7.213778 , 10.215629 ,  5.2262554,  5.2262554]),dtype=np.float32)
         target_x = np.random.rand(batch_size) * (7.213778 - 0.48975977) + 0.48975977
         target_y = np.random.rand(batch_size) * (10.215629 - 0.50192666) + 0.50192666
@@ -387,15 +343,27 @@ class OnlineTrainer:
         idx = np.where(energy==energy_med)[0]
         return target_state[idx].squeeze()[:2]
     
-        # target = self.target_set[sample_idx//self.target_set.shape[1], sample_idx-sample_idx//self.target_set.shape[1]*self.target_set.shape[1]][:2]
-        
-        # traj_shape = (50, self.horizon, 4)
-        # target_traj = utils.arrays.sample_from_array(np.array(([-1,-1,-1,-1],[1,1,1,1]),dtype=np.float32), traj_shape=traj_shape)
-        # obs = torch.tensor(target_traj, device=self.args_train.device, dtype=torch.float32)
-        # t = torch.zeros(obs.shape[0],device=obs.device)
-        # cond = None
-        # self.obs_energy = self.diffusion_trainer.ema_model.model.point_energy(obs, cond, t).cpu().detach().numpy()
-        # self.target_set = obs.cpu().detach().numpy()
-        # self.obs_energy[self.target_set.sum(-1)==0] = 0
-        # sample_idx = np.random.choice(np.prod(self.obs_energy.shape), size=1, p=self.obs_energy.flatten()/self.obs_energy.sum())[0]
-        # target = self.target_set[sample_idx//self.target_set.shape[1], sample_idx-sample_idx//self.target_set.shape[1]*self.target_set.shape[1]][:2]
+    def compute_energy(self, typ, normed_obs):
+
+        shape = normed_obs.shape
+        state_energy = np.array([])
+        bs = 200
+        for i in range(1, shape[0]//bs+2):
+            input_normed_obs = normed_obs[(i-1)*bs:i*bs].reshape((-1,1,shape[2]))
+            state_energy_i = self.model.get_buffer_energy(input_normed_obs, self.device).squeeze().reshape((-1,shape[1])).sum(-1).detach().cpu().numpy()
+            state_energy = np.append(state_energy, state_energy_i)
+
+        if typ == 'both':
+            traj_energy = np.array([])
+            for i in range(1, shape[0]//bs + 2):
+                input_normed_obs = normed_obs[(i-1)*bs:i*bs]
+                traj_energy_i = self.trajectory_model.get_buffer_energy(input_normed_obs, self.device).squeeze().detach().cpu().numpy()
+                traj_energy = np.append(traj_energy, traj_energy_i)
+            total_energy = traj_energy + state_energy
+        elif typ == 'state':
+            total_energy = state_energy
+        else:   
+            raise NotImplementedError
+        self.dataset_state.fields['energy'] = total_energy
+        return total_energy
+

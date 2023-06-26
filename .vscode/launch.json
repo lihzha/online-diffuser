@@ -4,6 +4,8 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
+    
     
 
         {
@@ -23,7 +25,7 @@
             "env": {
                 "LD_LIBRARY_PATH": "$LD_LIBRARY_PATH:/home/lihan/.mujoco/mujoco200/bin"
               },
-            "justMyCode":true
+            "justMyCode":true,
         }
     ]
 }
