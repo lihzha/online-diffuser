@@ -28,32 +28,11 @@ class OnlineTrainer:
         assert self.max_path_length >= self.traj_len, 'Wrong traj_len!'
         self.horizon = dataset_state.horizon
         self.trainer.diffusion_model.sample_kwargs = self.policy.sample_kwargs
+        ### neglect this
         # a = np.load('755_280.npy')
-        # a = np.load('/home/lihan/diffuser-maze2d/logs/maze2d-large-v1/diffusion/5_29_only_hardcoded_3000_mid_value_sampling_gtdensity/traj/buffer_vis_traj.npy')
         # e = self.format_episode(None,np.zeros((200,4)),[a],np.zeros((200,1)),np.zeros((200,1)))
         # self.buffer.add_path(e)
-        # a = np.load('try2.npy')
-        # e = self.format_episode(None,np.zeros((200,4)),[a],np.zeros((200,1)),np.zeros((200,1)))
-        # self.buffer.add_path(e)
-        # a = a.reshape((100,200,4))[:34]
-        # for i in range(a.shape[0]):
-        #     e = self.format_episode(None,np.zeros((280,4)),[a[i]],np.zeros((280)),np.zeros((280)))
-        #     self.buffer.add_path(e)
-        # _ = self.process_dataset(self.dataset)
-        # self.save_buffer(self.trainer.logdir)
-        # self.trainer.train(int(10e6))     
-        # cond_targ = np.zeros(self.dataset.observation_dim)
-        # cond_targ[:2] = [3,1]
-        # cond = {
-        #     280-1: cond_targ
-        # }
-        # cond[0] = np.array([6,1.8,0,0]).repeat(10,0)
-        # cond = {}
-        # cond[0] = a[2,0][None].repeat(10,0)
-        # cond[280*2-1] = a[0,-1][None].repeat(10,0)
-        # samples = self.policy(cond)
-        # samples = samples.observations
-        # self.trainer.renderer.composite('a.png',samples,ncol=5)
+
 
     def train(self, train_freq, iterations):
         """Online training scenerio."""
@@ -76,7 +55,6 @@ class OnlineTrainer:
             else:
                 pass
             self.env.set_target(target)
-            # cond_pos = np.random.randint(self.traj_len//2, self.traj_len-1)
             cond_targ = np.zeros(self.dataset.observation_dim)
             cond_targ[:2] = self.env.get_target()
             cond = {
@@ -104,15 +82,16 @@ class OnlineTrainer:
             #     cond[range(100,100+epi_last+1)] = epi
             
             for t in range(self.max_path_length):
-                if it <= 10:
+                # first collect some good trajectories with hand-crafted controller (cheating for the time being)
+                if it <= 1000:
                     state = self.env.state_vector().copy()
                     action = cond_targ[:2] - state[:2] + (0 - state[2:])
                 else:
                     if t % self.traj_len == 0:
                         cond[0] = self.env.state_vector().copy()
-                        # target = self.sample_target(5)
-                        # cond_targ = np.zeros(self.dataset.observation_dim)
-                        # cond[self.traj_len-1] = cond_targ    
+                        target = self.sample_target(5)
+                        cond_targ = np.zeros(self.dataset.observation_dim)
+                        cond[self.traj_len-1] = cond_targ    
                         cnt = 0
                         samples = self.policy(cond)
                         obs_tmp = samples.observations

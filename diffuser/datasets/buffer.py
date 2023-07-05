@@ -123,10 +123,6 @@ class ReplayBuffer:
         self._count += 1
         self._count = self._count % self.max_n_episodes
 
-    def truncate_path(self, path_ind, step):
-        old = self._dict['path_lengths'][path_ind]
-        new = min(step, old)
-        self._dict['path_lengths'][path_ind] = new
 
     # def finalize(self):
     #     ## remove extra slots

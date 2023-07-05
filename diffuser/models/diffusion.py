@@ -4,17 +4,10 @@ import torch
 from torch import nn
 import pdb
 import diffuser.utils as utils
-from torch.nn.utils.rnn import pad_packed_sequence
 from .helpers import (
     cosine_beta_schedule,
     extract,
     apply_conditioning,
-    new_apply_conditioning,
-    pair_consistency,
-    form_pairs,
-    pair_to_traj,
-    get_state_from_traj,
-    get_traj_from_state,
     extend,
     Losses,
 )
@@ -96,9 +89,6 @@ class GaussianDiffusion(nn.Module):
         step_ratio = n_timesteps // ddim_timesteps
         timesteps = (np.arange(0, ddim_timesteps) * step_ratio).round()[::-1].copy().astype(np.int64)
         prev_timesteps = (timesteps - step_ratio).copy().astype(np.int64)
-        # prev_timesteps = (timesteps - step_ratio).copy()[:-2].astype(np.int64)
-        # timesteps = np.insert(timesteps,-1,np.linspace(state_noise_start_t, 1, state_noise_start_t))
-        # prev_timesteps = np.append(prev_timesteps,np.linspace(state_noise_start_t, -1, state_noise_start_t+2)).astype(np.int64)
         self.timesteps = torch.from_numpy(timesteps)
         self.prev_timesteps = torch.from_numpy(prev_timesteps)
         self.step_ratio = step_ratio
@@ -195,12 +185,10 @@ class GaussianDiffusion(nn.Module):
             #     noise = 0.3 * noise_state + 0.7 * noise_traj
             # else:
             noise = 1.0 * noise_traj
-
             # pair_x = form_pairs(x)
             # noise_pair = self.pair_model.sample(pair_x, cond, torch.ones(pair_x.shape[0],device=pair_x.device)*t[0])
             # noise_pair = pair_to_traj(noise_pair, self.traj_len)
             # TODO: control the scale of two noises
-
             # noise = 0.8 * noise_traj + 0.2 * noise_state
             # noise = 0.9 * noise_traj + 0.1 * noise_pair
             # noise = 0.5 * noise_traj + 0.5 * noise_pair
@@ -290,47 +278,15 @@ class GaussianDiffusion(nn.Module):
         device = self.betas.device
         batch_size = shape[0]
         x = torch.randn(shape, device=device)
-        # batch_size = 1
-        # x = torch.randn((1,400,4), device=device)
-        # x[0,0] = cond[0]
-        # x[0,199] = cond[199]
-        # x[0,399] = cond[399]
-        # if batch_size == 1:
-        #     x = torch.randn((4, 160, 4), device=device)
-        #     x[1,0] = x[0,-1]
-        #     x[2,0] = x[1,-1]
-        #     x[3,0] = x[2,-1]
-        #     x[-1,-1] = cond[159]
-        #     x[0,0] = cond[0]
-        #     batch_size = 4
-        # else:
-        #     x = torch.randn((batch_size,4, 160, 4), device=device)
-        #     x[:,1,0] = x[:,0,-1]
-        #     x[:,2,0] = x[:,1,-1]
-        #     x[:,3,0] = x[:,2,-1]
-        #     try:
-        #         x[:,-1,-1] = cond[159]
-        #     except:
-        #         pass
-        #     x[:,0,0] = cond[0]
-        #     batch_size = 4*batch_size
-        #     x = x.reshape((batch_size, 160, 4))
-        # x = pair_consistency(x)
         x = extend(x, cond)
         x = apply_conditioning(x, cond, self.action_dim)
-        # x = new_apply_conditioning(x, cond, self.action_dim)
         x = self.to_torch(x)
         chain = [x] if return_chain else None
         for t, prev_t in zip(self.timesteps, self.prev_timesteps):
             t = make_timesteps(batch_size, t, device)
             prev_t = make_timesteps(batch_size, prev_t, device)
             x = self.n_step_guided_ddim_sample(x, cond, t, prev_t, **sample_kwargs)
-            # x = new_apply_conditioning(x, cond, self.action_dim)
-            # x[0,0] = cond[0]
-            # x[0,199] = cond[199]
-            # x[0,399] = cond[399]
             x = apply_conditioning(x, cond, self.action_dim)
-            # x = pair_consistency(x)
             if return_chain: chain.append(x)
         if return_chain: chain = torch.stack(chain, dim=1)
         return Sample(x,chain)
