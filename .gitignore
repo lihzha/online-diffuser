@@ -1,7 +1,8 @@
 bin/
 logs/
 wandb/
-
+.png
+.npy
 fuse.cfg
 
 *.ai
