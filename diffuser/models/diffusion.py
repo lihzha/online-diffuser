@@ -48,8 +48,8 @@ def make_timesteps(batch_size, i, device):
 
 
 class GaussianDiffusion(nn.Module):
-    def __init__(self, model, state_model, horizon, observation_dim, action_dim, predict_type, traj_len, ddim_timesteps=2, ddim=False, 
-        n_timesteps=1000, clip_denoised=False, predict_epsilon=True,
+    def __init__(self, model, state_model, horizon, observation_dim, action_dim, predict_type, traj_len, condition_type, 
+                 ddim_timesteps=2, ddim=False, n_timesteps=1000, clip_denoised=False, predict_epsilon=True,
         action_weight=1.0, loss_discount=1.0, loss_weights=None, state_noise_start_t=3,
     ):
         super().__init__()
@@ -57,6 +57,7 @@ class GaussianDiffusion(nn.Module):
         self.predict_type = predict_type
         self.traj_len = traj_len
         self.state_noise_start_t = state_noise_start_t
+        self.condition_type = condition_type
         if predict_type == 'obs_only':
             self.observation_dim = observation_dim
             self.action_dim = 0
@@ -175,7 +176,7 @@ class GaussianDiffusion(nn.Module):
             x_recon = self.predict_start_from_noise(x, t=t, noise=grad)
         else:
             noise_traj = self.model.sample(x,cond,t)
-            noise_traj *= extract(self.sqrt_one_minus_alphas_cumprod, t, noise_traj.shape)
+            # noise_traj *= extract(self.sqrt_one_minus_alphas_cumprod, t, noise_traj.shape)
             # if (t<=self.state_noise_start_t).any():
             #     x_state = get_state_from_traj(x)
             #     t_state = t.repeat(self.traj_len)
@@ -219,7 +220,7 @@ class GaussianDiffusion(nn.Module):
             # buffer = self.q_sample(x_start=cond[range(self.traj_len)], t=t)
             # noise_buffer = self.model.sample(buffer, cond, t)
             noise_traj = self.model.sample(x_t,cond,t)
-            noise_traj *= extract(self.sqrt_one_minus_alphas_cumprod, t, noise_traj.shape)
+            # noise_traj *= extract(self.sqrt_one_minus_alphas_cumprod, t, noise_traj.shape)
             # if (t>=-1).any():
             #     noise = 1*noise_buffer + noise_traj*0
             # if self.cnt <= 3000:
@@ -256,7 +257,9 @@ class GaussianDiffusion(nn.Module):
         batch_size = shape[0]
         x = torch.randn(shape, device=device)
         # x = pair_consistency(x)
-        x = apply_conditioning(x, cond, self.action_dim)
+        if self.condition_type == 'extend':
+            x = extend(x, cond)
+        x = apply_conditioning(x, cond, self.action_dim, self.condition_type)
         # x = new_apply_conditioning(x, cond, self.action_dim)
         x = self.to_torch(x)
         chain = [x] if return_chain else None
@@ -265,7 +268,7 @@ class GaussianDiffusion(nn.Module):
             t = make_timesteps(batch_size, i, device)
             x = self.n_step_guided_p_sample(x, cond, t, **sample_kwargs)
             # x = new_apply_conditioning(x, cond, self.action_dim)
-            x = apply_conditioning(x, cond, self.action_dim)
+            x = apply_conditioning(x, cond, self.action_dim, self.condition_type)
             # x = pair_consistency(x)
             if return_chain: chain.append(x)
 
@@ -278,15 +281,16 @@ class GaussianDiffusion(nn.Module):
         device = self.betas.device
         batch_size = shape[0]
         x = torch.randn(shape, device=device)
-        x = extend(x, cond)
-        x = apply_conditioning(x, cond, self.action_dim)
+        if self.condition_type == 'extend':
+            x = extend(x, cond)
+        x = apply_conditioning(x, cond, self.action_dim, self.condition_type)
         x = self.to_torch(x)
         chain = [x] if return_chain else None
         for t, prev_t in zip(self.timesteps, self.prev_timesteps):
             t = make_timesteps(batch_size, t, device)
             prev_t = make_timesteps(batch_size, prev_t, device)
             x = self.n_step_guided_ddim_sample(x, cond, t, prev_t, **sample_kwargs)
-            x = apply_conditioning(x, cond, self.action_dim)
+            x = apply_conditioning(x, cond, self.action_dim, self.condition_type)
             if return_chain: chain.append(x)
         if return_chain: chain = torch.stack(chain, dim=1)
         return Sample(x,chain)
@@ -350,7 +354,10 @@ class GaussianDiffusion(nn.Module):
         #     shape = (len(cond[0]), horizon, self.transition_dim)
 
         # shape = (len(cond[0]), max(cond.keys())+1, self.transition_dim)
-        shape = (len(cond[0]), max(cond.keys())+1, self.transition_dim//2)
+        if self.condition_type == 'extend':
+            shape = (len(cond[0]), max(cond.keys())+1, self.transition_dim//2)
+        else:
+            shape = (len(cond[0]), max(cond.keys())+1, self.transition_dim)
         if train_ddim:
             return self.ddim_sample_loop(shape, cond, **self.sample_kwargs)
         if train_ddim == False:
@@ -377,13 +384,14 @@ class GaussianDiffusion(nn.Module):
     def p_losses(self, x_start, cond, t):
 
         # Train trajectory model
-        x_start = extend(x_start, cond)
+        if self.condition_type == 'extend':
+            x_start = extend(x_start, cond)
         noise = torch.randn_like(x_start)
         # mask = ~(x_start.sum(-1) == 0)[:,:,None]
         # noise = noise * mask
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         if x_noisy.shape[1] != 1:
-            x_noisy = apply_conditioning(x_noisy, cond, self.action_dim)
+            x_noisy = apply_conditioning(x_noisy, cond, self.action_dim, self.condition_type)
             # x_noisy = x_noisy * mask
             x_recon = self.model(x_noisy, cond, t)
         else:
@@ -392,10 +400,10 @@ class GaussianDiffusion(nn.Module):
         assert noise.shape == x_recon.shape
 
         if self.predict_epsilon:
-            x_recon *= extract(self.sqrt_one_minus_alphas_cumprod, t, x_recon.shape)
+            # x_recon *= extract(self.sqrt_one_minus_alphas_cumprod, t, x_recon.shape)
             loss, info = self.loss_fn(x_recon, noise)
         else:
-            x_recon = apply_conditioning(x_recon, cond, self.action_dim)
+            x_recon = apply_conditioning(x_recon, cond, self.action_dim, self.condition_type)
             loss, info = self.loss_fn(x_recon, x_start)
 
 

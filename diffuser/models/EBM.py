@@ -1,13 +1,12 @@
 import torch.nn as nn
 import torch
-from .helpers import pair_consistency, is_pair
-
 
 class EBMDiffusionModel(nn.Module):
 
-    def __init__(self, net):
+    def __init__(self, net, condition_type='normal'):
         super().__init__()
         self.net = net
+        self.condition_type = condition_type
 
     def point_energy(self, x, cond, t):
         score = self.net(x, cond, t)
@@ -15,6 +14,7 @@ class EBMDiffusionModel(nn.Module):
         # if is_pair(x):
         #     score = pair_consistency(score)
         point_energy = ((score - x) ** 2).sum(-1)
+        # point_energy = torch.mul(x, score).sum(-1)
         return point_energy
   
     def __call__(self, x, cond, t):
@@ -38,10 +38,11 @@ class EBMDiffusionModel(nn.Module):
         energy = self.point_energy(obs, cond, t).mean(-1)
         return energy
 
-    def get_target_energy(self, target_pair, device):
-        target_pair = torch.tensor(target_pair, device=device, dtype=torch.float32)
-        t = torch.zeros(target_pair.shape[0], device=device, dtype=torch.float32)
+    def get_target_energy(self, target, device):
+        target = torch.tensor(target, device=device, dtype=torch.float32)
+        t = torch.zeros(target.shape[0], device=device, dtype=torch.float32)
         cond = None
-        target_pair = torch.cat((target_pair, target_pair), dim=2)
-        energy = self.point_energy(target_pair, cond, t).mean(-1)
+        if self.condition_type == 'extend':
+            target = torch.cat((target, target), dim=2)
+        energy = self.point_energy(target, cond, t).mean(-1)
         return energy.detach().cpu().numpy()

@@ -108,10 +108,13 @@ def extend(x, conditions):
     x = torch.cat((cond_array, x), dim=2)
     return x
 
-def apply_conditioning(x, conditions, action_dim):
-    
-    for t, val in conditions.items():
-        x[:, t, action_dim+4:] = val.clone()
+def apply_conditioning(x, conditions, action_dim, condition_type):
+    if condition_type == 'extend':
+        for t, val in conditions.items():
+            x[:, t, action_dim+4:] = val.clone()
+    else:
+        for t, val in conditions.items():
+            x[:, t, action_dim:] = val.clone()
 
     return x
 

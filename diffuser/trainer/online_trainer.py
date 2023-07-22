@@ -17,6 +17,7 @@ class OnlineTrainer:
         self.policy = policy
         self.predict_type = predict_type
         self.buffer = copy.deepcopy(self.dataset.fields)
+        self.state_buffer = copy.deepcopy(self.dataset.fields)
         self.total_reward = []
         self.total_score = []
 
@@ -60,30 +61,10 @@ class OnlineTrainer:
             cond = {
                 self.traj_len-1: cond_targ
             }
-
-            # if it > 2000:
-            #     energy = self.dataset.fields['energy']
-            #     idx = np.random.choice(energy.shape[0], 1, p=energy/energy.sum()).item()
-            #     epi = self.dataset.__getitem__(idx).trajectories
-            #     epi_last = epi[:,0].nonzero()[0][-1]
-            #     epi = epi[:epi_last+1]
-            #     epi = self.dataset.normalizer.unnormalize(epi, 'observations')
-            #     if epi_last > 150:
-            #         cond[range(125,275)] = epi[:150]
-            #     else:
-            #         cond[range(100,100+epi_last+1)] = epi
-
-            # epi = self.buffer['observations'][58]
-            # epi_last = epi[:,0].nonzero()[0][-1]
-            # # epi = self.dataset.normalizer.unnormalize(epi, 'observations')
-            # if epi_last > 150:
-            #     cond[range(125,275)] = epi[:150]
-            # else:
-            #     cond[range(100,100+epi_last+1)] = epi
             
             for t in range(self.max_path_length):
                 # first collect some good trajectories with hand-crafted controller (cheating for the time being)
-                if it <= 1000:
+                if it <= 2000:
                     state = self.env.state_vector().copy()
                     action = cond_targ[:2] - state[:2] + (0 - state[2:])
                 else:
@@ -95,19 +76,15 @@ class OnlineTrainer:
                         cnt = 0
                         samples = self.policy(cond)
                         obs_tmp = samples.observations
-                        obs_tmp = obs_tmp[:,:,4:]
-                        # self.trainer.renderer.composite('b.png',obs_tmp,ncol=1)
-                        if obs_tmp.shape[0] == 1:
-                            obs_tmp = obs_tmp.squeeze()
-                        elif obs_tmp.shape[0] == 4:
-                            obs_tmp = obs_tmp.reshape((-1, 4))
+                        if self.trainer.diffusion_model.condition_type == 'extend':
+                            obs_tmp = obs_tmp[:,:,4:]
+                        else:
+                            obs_tmp = obs_tmp[:,:,:]
+                        assert obs_tmp.shape[0] == 1
+                        obs_tmp = obs_tmp.squeeze()
+
                     # design a simple controller based on observations
                     state = self.env.state_vector().copy()
-                    # if t < self.traj_len:
-                    # action = obs_tmp[t,:2] - state[:2] + (obs_tmp[t,2:] - state[2:])
-                    # else:
-                    # action = obs_tmp[-1,:2] - state[:2] + (0 - state[2:])
-                    # action = obs_tmp[cnt,-1,:2] - state[:2] + (obs_tmp[cnt,-1,2:] - state[2:])
                     action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
                     cnt += 1
                 next_observation, reward, terminated, info = self.env.step(action)
@@ -306,7 +283,7 @@ class OnlineTrainer:
             self.trainer_state.render_buffer(10, dataset.fields['observations'])
         # num_trainsteps = min(sample_size * 4, 4000)
         # num_trainsteps = dataset.fields['normed_observations'].shape[0] * 5
-        num_trainsteps = 3000
+        num_trainsteps = 2000
         return num_trainsteps
     
     def sample_target(self, batch_size):
@@ -331,7 +308,6 @@ class OnlineTrainer:
             input_normed_obs = normed_obs[(i-1)*bs:i*bs].reshape((-1,1,shape[2]))
             state_energy_i = self.model.get_buffer_energy(input_normed_obs, self.device).squeeze().reshape((-1,shape[1])).sum(-1).detach().cpu().numpy()
             state_energy = np.append(state_energy, state_energy_i)
-
         if typ == 'both':
             traj_energy = np.array([])
             for i in range(1, shape[0]//bs + 2):

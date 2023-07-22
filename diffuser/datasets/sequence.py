@@ -30,7 +30,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         fields = ReplayBuffer(max_n_episodes, max_path_length, termination_penalty=None)
         self.fields = fields
         self.normalizer = DatasetNormalizer(self, normalizer, predict_type)
-        
+
         print(fields)
 
     def set_fields(self, fields):

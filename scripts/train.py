@@ -62,8 +62,10 @@ def main():
     dataset_state = dataset_config(horizon=args.horizon)
     dataset_traj = dataset_config(horizon=args.traj_len)
 
-
-    observation_dim = 2*env.observation_space.shape[0]
+    if args.condition_type == 'extend':
+        observation_dim = 2*env.observation_space.shape[0]
+    elif args.condition_type == 'normal':
+        observation_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
     if args.predict_type == 'obs_only':
@@ -77,6 +79,7 @@ def main():
         args.wrapper,
         model=args.model_name,
         ebm=args.ebm,
+        condition_type=args.condition_type,
         savepath=(diffusion_savepath, 'model_config_d.pkl'),
         transition_dim=transition_dim,
         cond_dim=observation_dim,
@@ -87,6 +90,7 @@ def main():
         args.diffusion,
         savepath=(diffusion_savepath, 'diffusion_config_d.pkl'),
         horizon=args.horizon,
+        condition_type=args.condition_type,
         observation_dim=observation_dim,
         action_dim=action_dim,
         ddim = args.ddim,

@@ -256,24 +256,6 @@ class Trainer(object):
             conditions = batch.conditions
             trajectories = batch.trajectories
             trajectories = trajectories.squeeze(0)
-            # conditions = conditions[0]
-            # for key in conditions.keys():
-            #     conditions[key] = conditions[key].squeeze(0)
-            # conditions[0] = np.array([2.3879678,  7.8236537, -5.1257896,  0.3430762])[None]
-            # conditions[batch.trajectories.shape[1]-1] = np.array([5.0155005, 2.0509837, 0,0])[None]
-            # conditions[0] = np.array([2.3879678,  7.8236537, 0,0])[None]
-            
-            # conditions[199] = np.array([ 3,5 , 0,0])[None]
-            # conditions[399] = np.array([ 5.0875463 ,  7  , 0,0])[None]
-            # conditions[batch.trajectories.shape[1]-1] = np.array([ 2.962306  ,  4.9593716 , -0.10166378, -3.3860238 ])[None]
-            # conditions[batch.trajectories.shape[1]-1] = np.array([5.0155005, 2.0509837, 0, 0])[None]
-            # conditions[batch.trajectories.shape[1]-1] = np.array([5.0155005, 2.0509837, 1.4165164, 1.298833 ])[None]
-            # conditions[0] = np.array([ 2.9608955 ,  4.9232106 , -0.14104062, -3.6161234 ])[None]
-            # conditions[batch.trajectories.shape[1]-1] = np.array([5.0155005, 2.0509837, 1.4165164, 1.298833 ])[None]
-            
-            # conditions[0] = np.array([4.9572325, 6.058691 , 1.6279856, 1.651029 ])[None]
-            # conditions[batch.trajectories.shape[1]-1] = np.array([ 5.0875463 ,  9.720057  , -0.79894155, -2.8105795 ])[None]
-
             if i == 0:
                 conditions[0] = np.array([1,1,0,0])[None]
                 conditions[trajectories.shape[1]-1] = np.array([1,8,0,0])[None]
@@ -290,9 +272,6 @@ class Trainer(object):
             conditions[trajectories.shape[1]-1] = self.dataset.normalizer.normalize(conditions[trajectories.shape[1]-1], 'observations')
             conditions[0] = torch.tensor(conditions[0])
             conditions[trajectories.shape[1]-1] = torch.tensor(conditions[trajectories.shape[1]-1])
-
-            # conditions[399] = self.dataset.normalizer.normalize(conditions[399], 'observations')
-            # conditions[399] = torch.tensor(conditions[399])
 
             conditions = to_device(conditions, self.device)
 
@@ -311,7 +290,11 @@ class Trainer(object):
 
             ## [ n_samples x (horizon + 1) x observation_dim ]
             observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
-            for j in range(2):
+            if self.diffusion_model.condition_type == 'extend':
+                round = 2
+            else:
+                round = 1
+            for j in range(round):
                 obs = observations[:,:,j*4:(j+1)*4]
 
                 savepath = os.path.join(self.logdir, f'sample-{self.step}-{i}-{j}.png')

@@ -5,7 +5,7 @@ base = {
 
     'online_training': {
 
-        'dirname':'change_coef_f',
+        'dirname':'debug_normal',
 
         # environment:
         'env_wrapper': 'environments.d4rl_env_wrapper',
@@ -19,7 +19,7 @@ base = {
         'max_path_length': 800,
         'max_n_episodes': 3000,
         'predict_type': 'obs_only',
-        'device': 'cuda:2',
+        'device': 'cuda:0',
 
         # renderer
         'renderer': 'utils.Maze2dRenderer',
@@ -37,10 +37,11 @@ base = {
         'ddim_timesteps': 8,
         'n_diffusion_steps': 128,
         'clip_denoised': True,
-        'predict_epsilon': True,
+        'predict_epsilon': False,
         'action_weight': 1,
         'loss_weights': None,
         'loss_discount': 1,
+        'condition_type': 'normal',
 
         # trainer
         'traj_batchsize': 1,
@@ -71,7 +72,7 @@ base = {
         # online trainer
         'train_freq': 1000,
         'iterations': 300001,
-        'traj_len': 256,
+        'traj_len': 400,
 
     },
 
