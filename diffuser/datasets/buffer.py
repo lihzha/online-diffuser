@@ -96,9 +96,9 @@ class ReplayBuffer:
     #     self._count += 1
     #     self._count = self._count % self.max_n_episodes
         
-    def add_path(self, path):
+    def add_path(self, path ,length=None):
 
-        path_length = len(path['observations'])
+        path_length = len(path['observations']) if length is None else length
         ## if first path added, set keys based on contents
         self._add_keys(path)
         first = self.update_idx(path, path_length)

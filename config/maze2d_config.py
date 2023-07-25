@@ -5,7 +5,7 @@ base = {
 
     'online_training': {
 
-        'dirname':'debug_normal',
+        'dirname':'debug_addbuffer_resample',
 
         # environment:
         'env_wrapper': 'environments.d4rl_env_wrapper',
@@ -20,6 +20,7 @@ base = {
         'max_n_episodes': 3000,
         'predict_type': 'obs_only',
         'device': 'cuda:0',
+        'use_fake_buffer':True,
 
         # renderer
         'renderer': 'utils.Maze2dRenderer',
@@ -41,7 +42,7 @@ base = {
         'action_weight': 1,
         'loss_weights': None,
         'loss_discount': 1,
-        'condition_type': 'normal',
+        'condition_type': 'extend', #normal
 
         # trainer
         'traj_batchsize': 1,

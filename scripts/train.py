@@ -61,6 +61,7 @@ def main():
 
     dataset_state = dataset_config(horizon=args.horizon)
     dataset_traj = dataset_config(horizon=args.traj_len)
+    dataset_traj_fake = dataset_config(horizon=args.traj_len)
 
     if args.condition_type == 'extend':
         observation_dim = 2*env.observation_space.shape[0]
@@ -128,9 +129,9 @@ def main():
 
     diffusion = diffusion_config(model=trajectory_model, state_model=state_model)
 
-    trainer_state = trainer_config(diffusion, state_model, dataset_state, args.device, renderer, 
+    trainer_state = trainer_config(diffusion, state_model, dataset_state, None ,args.device, renderer, 
                                    args.state_batchsize, diffusion_savepath+'/state', args.loadpath_state)
-    trainer_traj = trainer_config(diffusion, trajectory_model, dataset_traj, args.device, renderer, 
+    trainer_traj = trainer_config(diffusion, trajectory_model, dataset_traj, dataset_traj_fake, args.device, renderer, 
                                   args.traj_batchsize, diffusion_savepath+'/traj', args.loadpath_traj)
  
     diffusion = trainer_traj.diffusion_model
@@ -152,7 +153,7 @@ def main():
 
     policy = policy_config()
 
-    _online_trainer = OnlineTrainer(state_model, trajectory_model, trainer_traj, trainer_state, env, dataset_traj, dataset_state, policy, args.predict_type)
+    _online_trainer = OnlineTrainer(state_model, trajectory_model, trainer_traj, trainer_state, env, dataset_traj, dataset_traj_fake, dataset_state, policy, args.predict_type,args.use_fake_buffer)
     _online_trainer.train(args.train_freq, args.iterations)
         
 

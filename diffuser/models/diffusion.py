@@ -381,7 +381,7 @@ class GaussianDiffusion(nn.Module):
         return sample
 
 
-    def p_losses(self, x_start, cond, t):
+    def p_losses(self, x_start, cond, t, fake):
 
         # Train trajectory model
         if self.condition_type == 'extend':
@@ -393,7 +393,7 @@ class GaussianDiffusion(nn.Module):
         if x_noisy.shape[1] != 1:
             x_noisy = apply_conditioning(x_noisy, cond, self.action_dim, self.condition_type)
             # x_noisy = x_noisy * mask
-            x_recon = self.model(x_noisy, cond, t)
+            x_recon = self.model(x_noisy, cond, t, fake)
         else:
             x_recon = self.state_model(x_noisy, cond, t)
 
@@ -405,7 +405,8 @@ class GaussianDiffusion(nn.Module):
         else:
             x_recon = apply_conditioning(x_recon, cond, self.action_dim, self.condition_type)
             loss, info = self.loss_fn(x_recon, x_start)
-
+        # if fake:
+        #     loss*=-1
 
         # Train pair model
         # x_start_state = get_state_from_traj(x_start)
@@ -442,7 +443,7 @@ class GaussianDiffusion(nn.Module):
 
         return loss, info    # only backward once loss3
 
-    def loss(self, x, cond):
+    def loss(self, x, cond, fake=False):
 
         # t = torch.randint(1, self.ddim_timesteps+1, (batch_size,), device=x.device).long()
         # t *= self.n_timesteps // self.ddim_timesteps
@@ -451,7 +452,7 @@ class GaussianDiffusion(nn.Module):
         batch_size = len(x)
         t = torch.randint(0, self.n_timesteps, (batch_size,), device=x.device).long()
         # x = x.to(torch.float)
-        return self.p_losses(x, cond, t)
+        return self.p_losses(x, cond, t, fake)
 
     def forward(self, cond, *args, **kwargs):
         return self.conditional_sample(cond, *args, **kwargs)

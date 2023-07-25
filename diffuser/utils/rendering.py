@@ -330,11 +330,11 @@ class Maze2dRenderer(MazeRenderer):
         self._background = self.env.maze_arr == 10
         self._remove_margins = False
         self._extent = (0, 1, 1, 0)
-        try:
-            self.viewer = mjc.MjRenderContextOffscreen(self.env.sim)
-        except:
-            print('[ utils/rendering ] Warning: could not initialize offscreen renderer')
-            self.viewer = None
+        # try:
+        #     self.viewer = mjc.MjRenderContextOffscreen(self.env.sim)
+        # except:
+        #     print('[ utils/rendering ] Warning: could not initialize offscreen renderer')
+        #     self.viewer = None
             
     def renders(self, observations, conditions=None, **kwargs):
         bounds = MAZE_BOUNDS[self.env_name]

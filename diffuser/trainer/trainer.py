@@ -9,7 +9,7 @@ from ..utils.arrays import new_batch_to_device, to_np, to_device, apply_dict
 from ..utils.timer import Timer
 import torch.nn as nn
 import matplotlib.pyplot as plt
-import cv2
+# import cv2
 # from torch.nn.utils.rnn import pack_padded_sequence
 
 def cycle(dl):
@@ -41,6 +41,7 @@ class Trainer(object):
         diffusion_model,
         model,
         dataset,
+        dataset_fake,
         device,
         renderer,
         train_batch_size,
@@ -80,6 +81,7 @@ class Trainer(object):
         self.gradient_accumulate_every = gradient_accumulate_every
 
         self.dataset = dataset
+        self.dataset_fake = dataset_fake
             
         self.optimizer = torch.optim.Adam(model.parameters(), lr=train_lr)
         
@@ -95,7 +97,7 @@ class Trainer(object):
             self.load(loadpath)
 
 
-    def create_dataloader(self, batch_size=None, sampler=None):
+    def create_dataloader(self, use_fake_buffer=False, batch_size=None, sampler=None):
         # def my_collate(batch):
         #     traj = torch.as_tensor([b.trajectories for b in batch], dtype=torch.float32)
         #     path_length = torch.as_tensor([b.path_lengths for b in batch],dtype=torch.int)
@@ -117,7 +119,20 @@ class Trainer(object):
             self.dataloader = cycle(torch.utils.data.DataLoader(
                     self.dataset, batch_size=self.batch_size, num_workers=1, pin_memory=True, sampler=sampler))
         self.dataloader_vis = cycle(torch.utils.data.DataLoader(
-                self.dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True))
+                    self.dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True))
+        if use_fake_buffer:
+            if batch_size == None and sampler == None:
+                self.dataloader_fake = cycle(torch.utils.data.DataLoader(
+                        self.dataset_fake, batch_size=self.batch_size, num_workers=1, shuffle=True, pin_memory=True, collate_fn=my_collate))
+            elif batch_size != None and sampler == None:
+                self.dataloader_fake = cycle(torch.utils.data.DataLoader(
+                        self.dataset_fake, batch_size=batch_size, num_workers=1, shuffle=True, pin_memory=True))
+            elif sampler != None:
+                self.dataloader_fake = cycle(torch.utils.data.DataLoader(
+                        self.dataset_fake, batch_size=self.batch_size, num_workers=1, pin_memory=True, sampler=sampler))
+            self.dataloader_fake_vis = cycle(torch.utils.data.DataLoader(
+                        self.dataset_fake, batch_size=1, num_workers=0, shuffle=True, pin_memory=True))
+
 
     def reset_parameters(self):
         self.ema_model.load_state_dict(self.model.state_dict())
@@ -132,7 +147,7 @@ class Trainer(object):
     #------------------------------------ api ------------------------------------#
     #-----------------------------------------------------------------------------#
 
-    def train(self, n_train_steps):
+    def train(self, n_train_steps, use_fake_buffer=False):
 
         timer = Timer()
         for step in range(n_train_steps):
@@ -144,6 +159,14 @@ class Trainer(object):
                 loss, infos = self.diffusion_model.loss(*batch)
                 loss = loss / self.gradient_accumulate_every
                 loss.backward()
+
+                if use_fake_buffer:
+                    batch = next(self.dataloader_fake)
+                    batch = new_batch_to_device(batch, device=self.device)
+
+                    loss, infos = self.diffusion_model.loss(*batch, fake=True)
+                    loss = loss / self.gradient_accumulate_every / 2
+                    loss.backward()
                 # TODO: what is max_norm?
                 nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.1)
 

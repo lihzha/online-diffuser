@@ -5,7 +5,7 @@ import os
 # from torch.utils.data import WeightedRandomSampler
 
 class OnlineTrainer:
-    def __init__(self, state_model, trajectory_model, trainer_traj, trainer_state, env, dataset_traj, dataset_state, policy, predict_type):
+    def __init__(self, state_model, trajectory_model, trainer_traj, trainer_state, env, dataset_traj,dataset_traj_fake, dataset_state, policy, predict_type,use_fake_buffer):
 
         self.model = state_model
         self.trajectory_model = trajectory_model
@@ -18,6 +18,11 @@ class OnlineTrainer:
         self.predict_type = predict_type
         self.buffer = copy.deepcopy(self.dataset.fields)
         self.state_buffer = copy.deepcopy(self.dataset.fields)
+        self.use_fake_buffer = use_fake_buffer
+        if self.use_fake_buffer:
+            self.dataset_fake = dataset_traj_fake
+            self.buffer_fake = copy.deepcopy(self.dataset_fake.fields)
+
         self.total_reward = []
         self.total_score = []
 
@@ -50,27 +55,26 @@ class OnlineTrainer:
             elif self.predict_type == 'action_only':
                 actions, rew, terminals = [], [], [], []
             observation = self.env.reset()
-            if total_reward != 0 or it % 10 == 0:
-                target = self.sample_target(5)
-                total_reward = 0
-            else:
-                pass
+
+            total_reward = 0
+            target = self.sample_target(5)
             self.env.set_target(target)
             cond_targ = np.zeros(self.dataset.observation_dim)
             cond_targ[:2] = self.env.get_target()
             cond = {
                 self.traj_len-1: cond_targ
             }
-            
+
+            warm_start = 500
             for t in range(self.max_path_length):
                 # first collect some good trajectories with hand-crafted controller (cheating for the time being)
-                if it <= 2000:
+                if it < warm_start:
                     state = self.env.state_vector().copy()
                     action = cond_targ[:2] - state[:2] + (0 - state[2:])
                 else:
                     if t % self.traj_len == 0:
                         cond[0] = self.env.state_vector().copy()
-                        target = self.sample_target(5)
+                        # target = self.sample_target(5)
                         cond_targ = np.zeros(self.dataset.observation_dim)
                         cond[self.traj_len-1] = cond_targ    
                         cnt = 0
@@ -96,18 +100,18 @@ class OnlineTrainer:
                 total_reward += reward
                 # score = self.env.get_normalized_score(self.total_reward)
                 # self.rollout.append(next_observation.copy())
-                if self.env.__repr__() == 'maze2d':
-                    xy = next_observation[:2]
-                    goal = self.env.unwrapped._target
-                    print(
-                        f'it: {it} | maze | pos: {xy} | goal: {goal}'
-                    )
-                else:
-                    xy = next_observation[:2]
-                    dist = np.linalg.norm(xy-cond_targ[:2])
-                    print(
-                        f'it: {it} | panda | dist: {dist}'
-                    )
+                # if self.env.__repr__() == 'maze2d':
+                #     xy = next_observation[:2]
+                #     goal = self.env.unwrapped._target
+                #     print(
+                #         f'it: {it} | maze | pos: {xy} | goal: {goal}'
+                #     )
+                # else:
+                #     xy = next_observation[:2]
+                #     dist = np.linalg.norm(xy-cond_targ[:2])
+                #     print(
+                #         f'it: {it} | panda | dist: {dist}'
+                #     )
 
                 if self.predict_type == 'joint':
                     next_obs.append(next_observation)
@@ -125,30 +129,35 @@ class OnlineTrainer:
                     break
 
                 observation = next_observation.copy()
-                print(t)
-
-            if len(obs) >= 100:
+            
+            if len(obs) >= 100 and (it>warm_start or total_reward>0):
                 if self.predict_type == 'joint':
-                    episode = self.format_episode(actions, next_obs, obs, rew, terminals)
+                    episode,episode_real_len = self.format_episode(actions, next_obs, np.array(obs), rew, terminals)
                 elif self.predict_type == 'obs_only':
-                    episode = self.format_episode(None, next_obs, obs, rew, terminals)
+                    episode,episode_real_len = self.format_episode(None, next_obs, np.array(obs), rew, terminals)
                 elif self.predict_type == 'action_only':
-                    episode = self.format_episode(actions, None, None, rew, terminals)     
-                self.add_to_buffer(episode)     
+                    episode,episode_real_len = self.format_episode(actions, None, None, rew, terminals)     
+                self.add_to_buffer(episode)
+                # save fake path lead to zero reward
+                if self.use_fake_buffer and it>warm_start and total_reward==0:
+                    obs_fake = samples.observations[0,:,4:] if self.trainer.diffusion_model.condition_type == 'extend' else samples.observations[0]
+                    episode_fake,_ = self.format_episode(None, obs_fake,obs_fake,rew,terminals)
+                    self.add_to_buffer_fake(episode_fake,length=episode_real_len)
 
                 # self.trainer.renderer.composite('b.png',np.array(episode['observations'])[None],ncol=1)
             
             print("----------------",it,"round finished------------------")
-            print("total_reward", total_reward)
+            # print("total_reward", total_reward)
+            print('save_path_length',t,",total_reward",total_reward)
             self.total_reward.append(total_reward)
-            print('Average total reward is:', sum(self.total_reward)/len(self.total_reward))
+            # print('Average total reward is:', sum(self.total_reward)/len(self.total_reward))
             print('Non-zero rewards is:', len(np.nonzero(self.total_reward)[0])/len(self.total_reward)*100, "%")
             # self.total_score.append(score) 
 
             if it > 0 and it % train_freq == 0: 
-                num_trainsteps_traj = self.process_dataset(self.dataset)
-                self.save_buffer(self.trainer.logdir)
-                self.trainer.train(num_trainsteps_traj)     
+                num_trainsteps_traj = self.process_dataset(use_fake_buffer=self.use_fake_buffer)
+                # self.save_buffer(self.trainer.logdir)
+                self.trainer.train(num_trainsteps_traj,use_fake_buffer=self.use_fake_buffer)     
                 # num_trainsteps_state = self.process_dataset(self.dataset_state)
                 # self.trainer_state.train(num_trainsteps_state//2)            
     
@@ -229,60 +238,73 @@ class OnlineTrainer:
         """Turn generated samples into episode format."""
 
         episode = {}
-        episode_length = len(rew)
+        episode_length = obs.shape[0]
         if episode_length % 20 != 0:
             episode_real_len = int((episode_length // 20 + 1) * 20)
         else:
             episode_real_len = int((episode_length // 20) * 20)
         if actions != None:
             episode['actions'] = np.array(actions).reshape((episode_length,-1))
-        if obs != None:
-            episode['next_observations'] = np.zeros((episode_real_len, self.dataset.observation_dim), dtype=np.float32)
-            episode['next_observations'][:episode_length] = np.array(next_obs).reshape((episode_length,-1))
-            episode['next_observations'][episode_length:] = episode['next_observations'][episode_length-1]
-            episode['observations'] = np.zeros((episode_real_len, self.dataset.observation_dim), dtype=np.float32)
-            episode['observations'][:episode_length] = np.array(obs).reshape((episode_length,-1))
-            episode['observations'][episode_length:] = episode['observations'][episode_length-1]
-        episode['rewards'] = np.zeros((episode_real_len,1))
-        episode['rewards'][:episode_length,0] = np.array(rew)
-        episode['rewards'][episode_length:,0] = np.array(rew)[-1]
-        episode['terminals'] = np.zeros((episode_real_len,1))
-        episode['terminals'][:episode_length,0] = np.array(terminals)
-        episode['terminals'][episode_length:,0] = np.array(terminals)[-1]
+        # if obs != None:
+        episode['next_observations'] = np.zeros((episode_real_len, self.dataset.observation_dim), dtype=np.float32)
+        episode['next_observations'][:episode_length] = np.array(next_obs).reshape((episode_length,-1))
+        episode['next_observations'][episode_length:] = episode['next_observations'][episode_length-1]
+        episode['observations'] = np.zeros((episode_real_len, self.dataset.observation_dim), dtype=np.float32)
+        episode['observations'][:episode_length] = np.array(obs).reshape((episode_length,-1))
+        episode['observations'][episode_length:] = episode['observations'][episode_length-1]
 
-        return episode
+        episode['rewards'] = np.zeros((episode_real_len,1))
+        # episode['rewards'][:episode_length,0] = np.array(rew)
+        # episode['rewards'][episode_length:,0] = np.array(rew)[-1]
+        episode['terminals'] = np.zeros((episode_real_len,1))
+        # episode['terminals'][:episode_length,0] = np.array(terminals)
+        # episode['terminals'][episode_length:,0] = np.array(terminals)[-1]
+
+        return episode,episode_real_len
 
     def add_to_buffer(self, episode):
         """Update the field with newly-generated samples."""
 
         self.buffer.add_path(episode)
         print(self.buffer)
+    
+    def add_to_buffer_fake(self, episode, length):
+        self.buffer_fake.add_path(episode, length)
 
-    def process_dataset(self, dataset):
+    def process_dataset(self, use_fake_buffer):
         """Normalize and preprocess the training data."""
         
-        dataset.set_fields(self.buffer)
-        self.policy.normalizer = dataset.normalizer
+        # dataset.set_fields(self.buffer)
+        # self.policy.normalizer = dataset.normalizer
 
-        if dataset == self.dataset:
-            # dataset.indices = dataset.make_new_indices(dataset.fields['path_lengths'], self.traj_len)
-            # dataset.indices = dataset.make_uneven_indices(dataset.fields['path_lengths'])
-            # normed_obs = dataset.get_all_item()
-            # energy = self.compute_energy('both',normed_obs)
-            # sampler = WeightedRandomSampler(weights=energy, num_samples=self.trainer.batch_size, replacement=False)
-            # self.trainer.create_dataloader(sampler=sampler)
-            dataset.indices = dataset.make_fix_indices()
-            self.trainer.create_dataloader()
-            # self.trainer.render_buffer(10, dataset.fields['observations'])
-        elif dataset == self.dataset_state:
-            dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.horizon)
-            # normed_obs = dataset.get_all_item()
-            # energy = self.compute_energy('state', normed_obs)
-            # sampler = WeightedRandomSampler(weights=energy, num_samples=self.trainer.batch_size)
-            self.trainer_state.create_dataloader(sampler=None)
-            self.trainer_state.render_buffer(10, dataset.fields['observations'])
-        # num_trainsteps = min(sample_size * 4, 4000)
-        # num_trainsteps = dataset.fields['normed_observations'].shape[0] * 5
+        self.dataset.set_fields(self.buffer)
+        self.policy.normalizer = self.dataset.normalizer
+        self.dataset.indices = self.dataset.make_fix_indices()
+        if use_fake_buffer:
+            self.dataset_fake.set_fields(self.buffer_fake)
+            self.dataset_fake.indices = self.dataset_fake.make_fix_indices()
+        self.trainer.create_dataloader(use_fake_buffer=use_fake_buffer)
+
+        # if dataset == self.dataset or dataset == self.dataset_fake:
+        #     # dataset.indices = dataset.make_new_indices(dataset.fields['path_lengths'], self.traj_len)
+        #     # dataset.indices = dataset.make_uneven_indices(dataset.fields['path_lengths'])
+        #     # normed_obs = dataset.get_all_item()
+        #     # energy = self.compute_energy('both',normed_obs)
+        #     # sampler = WeightedRandomSampler(weights=energy, num_samples=self.trainer.batch_size, replacement=False)
+        #     # self.trainer.create_dataloader(sampler=sampler)
+        #     dataset.indices = dataset.make_fix_indices()
+        #     dataset.indices = dataset.make_fix_indices()
+        #     self.trainer.create_dataloader(dataset)
+        #     # self.trainer.render_buffer(10, dataset.fields['observations'])
+        # elif dataset == self.dataset_state:
+        #     dataset.indices = dataset.make_indices(dataset.fields['path_lengths'], self.horizon)
+        #     # normed_obs = dataset.get_all_item()
+        #     # energy = self.compute_energy('state', normed_obs)
+        #     # sampler = WeightedRandomSampler(weights=energy, num_samples=self.trainer.batch_size)
+        #     self.trainer_state.create_dataloader(sampler=None)
+        #     self.trainer_state.render_buffer(10, dataset.fields['observations'])
+        # # num_trainsteps = min(sample_size * 4, 4000)
+        # # num_trainsteps = dataset.fields['normed_observations'].shape[0] * 5
         num_trainsteps = 2000
         return num_trainsteps
     
