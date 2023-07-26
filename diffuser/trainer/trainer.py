@@ -165,7 +165,7 @@ class Trainer(object):
                     batch = new_batch_to_device(batch, device=self.device)
 
                     loss, infos = self.diffusion_model.loss(*batch, fake=True)
-                    loss = loss / self.gradient_accumulate_every / 2
+                    loss = 0.5 * loss / self.gradient_accumulate_every # coficient can be modified
                     loss.backward()
                 # TODO: what is max_norm?
                 nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.1)

@@ -5,7 +5,7 @@ base = {
 
     'online_training': {
 
-        'dirname':'debug_addbuffer_resample',
+        'dirname':'debug_addbuffer_followsimplecontroller_200_savemanybad',
 
         # environment:
         'env_wrapper': 'environments.d4rl_env_wrapper',

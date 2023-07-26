@@ -65,14 +65,15 @@ class OnlineTrainer:
                 self.traj_len-1: cond_targ
             }
 
-            warm_start = 500
+            warm_start = 800
             for t in range(self.max_path_length):
                 # first collect some good trajectories with hand-crafted controller (cheating for the time being)
                 if it < warm_start:
                     state = self.env.state_vector().copy()
                     action = cond_targ[:2] - state[:2] + (0 - state[2:])
                 else:
-                    if t % self.traj_len == 0:
+                    # if t % self.traj_len == 0:
+                    if t == 0:
                         cond[0] = self.env.state_vector().copy()
                         # target = self.sample_target(5)
                         cond_targ = np.zeros(self.dataset.observation_dim)
@@ -86,11 +87,13 @@ class OnlineTrainer:
                             obs_tmp = obs_tmp[:,:,:]
                         assert obs_tmp.shape[0] == 1
                         obs_tmp = obs_tmp.squeeze()
-
-                    # design a simple controller based on observations
+                    # [0,traj_lan] use planning result, [traj_len,max_path] use simple controller
                     state = self.env.state_vector().copy()
-                    action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
-                    cnt += 1
+                    if t<self.traj_len:
+                        action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
+                        cnt += 1
+                    if t>=self.traj_len:
+                        action = cond_targ[:2] - state[:2] + (0 - state[2:])
                 next_observation, reward, terminated, info = self.env.step(action)
                 
                 # cv2.imwrite('trial_rendering.png',self.env.render())
@@ -130,14 +133,16 @@ class OnlineTrainer:
 
                 observation = next_observation.copy()
             
-            if len(obs) >= 100 and (it>warm_start or total_reward>0):
-                if self.predict_type == 'joint':
-                    episode,episode_real_len = self.format_episode(actions, next_obs, np.array(obs), rew, terminals)
-                elif self.predict_type == 'obs_only':
-                    episode,episode_real_len = self.format_episode(None, next_obs, np.array(obs), rew, terminals)
-                elif self.predict_type == 'action_only':
-                    episode,episode_real_len = self.format_episode(actions, None, None, rew, terminals)     
-                self.add_to_buffer(episode)
+            if len(obs) >= 200:
+                if total_reward>0:
+                # if len(obs) >= 100:
+                    if self.predict_type == 'joint':
+                        episode,episode_real_len = self.format_episode(actions, next_obs, np.array(obs), rew, terminals)
+                    elif self.predict_type == 'obs_only':
+                        episode,episode_real_len = self.format_episode(None, next_obs, np.array(obs), rew, terminals)
+                    elif self.predict_type == 'action_only':
+                        episode,episode_real_len = self.format_episode(actions, None, None, rew, terminals)     
+                    self.add_to_buffer(episode)
                 # save fake path lead to zero reward
                 if self.use_fake_buffer and it>warm_start and total_reward==0:
                     obs_fake = samples.observations[0,:,4:] if self.trainer.diffusion_model.condition_type == 'extend' else samples.observations[0]

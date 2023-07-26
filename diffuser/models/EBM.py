@@ -16,7 +16,7 @@ class EBMDiffusionModel(nn.Module):
         # point_energy = ((score - x) ** 2).sum(-1)
         point_energy = torch.mul(x, score).sum(-1)
         if fake:
-            point_energy *= -0.5
+            point_energy *= -1
         return point_energy
   
     def __call__(self, x, cond, t,fake):
