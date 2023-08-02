@@ -64,7 +64,7 @@ class OnlineTrainer:
             cond = {
                 self.traj_len-1: cond_targ
             }
-
+            # test 
             warm_start = 800
             for t in range(self.max_path_length):
                 # first collect some good trajectories with hand-crafted controller (cheating for the time being)
