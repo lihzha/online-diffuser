@@ -4,7 +4,7 @@ wandb/
 *.png
 *.npy
 fuse.cfg
-
+*.pt
 *.ai
 
 # Generation results
