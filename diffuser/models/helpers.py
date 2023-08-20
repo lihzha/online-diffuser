@@ -96,15 +96,17 @@ def cosine_beta_schedule(timesteps, s=0.008, dtype=torch.float32):
     return torch.tensor(betas_clipped, dtype=dtype)
 
 def extend(x, conditions):
-    cond_array = torch.ones_like(x).transpose(0,1)
-    cnt = 0
+    cond_array = torch.ones_like(x)
+    traj_len = cond_array.shape[1]
+    assert len(list(conditions.keys())) == 2
     for t, val in conditions.items():
-        if cnt == 0:
-            cond_array[cond_array.shape[0]//2:] *= val
-            cnt += 1
+        assert len(val.shape) == 2
+        if t == 0:
+            # cond_array[:,::2, :] *= val[0]
+            cond_array[:,:traj_len, :] *= val[0]
         else:
-            cond_array[:cond_array.shape[1]//2] *= val
-    cond_array = cond_array.transpose(0,1)
+            # cond_array[:, 1::2, :] *= val[0]
+            cond_array[:,traj_len:, :] *= val[0]
     x = torch.cat((cond_array, x), dim=2)
     return x
 

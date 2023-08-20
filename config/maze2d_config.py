@@ -5,7 +5,10 @@ base = {
 
     'online_training': {
 
-        'dirname':'debug_addbuffer_followsimplecontroller_200_savemanybad',
+        'dirname':'modify_controller',
+        'eval': False,
+        'eval_epoch': 100,
+        'model_path': '/home/lihan/online-diffuser/state_80000.pt',
 
         # environment:
         'env_wrapper': 'environments.d4rl_env_wrapper',
@@ -19,7 +22,7 @@ base = {
         'max_path_length': 800,
         'max_n_episodes': 3000,
         'predict_type': 'obs_only',
-        'device': 'cuda:0',
+        'device': 'cuda:2',
         'use_fake_buffer':True,
 
         # renderer
@@ -36,7 +39,7 @@ base = {
         'diffusion': 'models.GaussianDiffusion',
         'ddim': True,
         'ddim_timesteps': 8,
-        'n_diffusion_steps': 128,
+        'n_diffusion_steps': 256,
         'clip_denoised': True,
         'predict_epsilon': False,
         'action_weight': 1,
@@ -73,7 +76,7 @@ base = {
         # online trainer
         'train_freq': 1000,
         'iterations': 300001,
-        'traj_len': 400,
+        'traj_len': 256,
 
     },
 

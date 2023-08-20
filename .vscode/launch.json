@@ -5,6 +5,7 @@
     "version": "0.2.0",
     "configurations": [
 
+
     
     
 
@@ -21,7 +22,7 @@
                 // "--logbase", "logs/pretrained"
                 "--config", "config.maze2d_config"
             ], 
-            "cwd":"/home/lihan/diffuser-maze2d",
+            "cwd":"/home/lihan/online-diffuser",
             "env": {
                 "LD_LIBRARY_PATH": "$LD_LIBRARY_PATH:/home/lihan/.mujoco/mujoco200/bin"
               },

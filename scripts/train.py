@@ -5,8 +5,8 @@ import time
 
 
 class Parser(utils.Parser):
-    # dataset: str = 'maze2d-large-v1'
-    dataset: str = 'PandaReach-v3'
+    dataset: str = 'maze2d-large-v1'
+    # dataset: str = 'PandaReach-v3'
     config: str = 'config.maze2d_config'
 
 def _make_dir(args_path, dirname=None):
@@ -133,8 +133,11 @@ def main():
                                    args.state_batchsize, diffusion_savepath+'/state', args.loadpath_state)
     trainer_traj = trainer_config(diffusion, trajectory_model, dataset_traj, dataset_traj_fake, args.device, renderer, 
                                   args.traj_batchsize, diffusion_savepath+'/traj', args.loadpath_traj)
- 
-    diffusion = trainer_traj.diffusion_model
+    if args.eval:
+        trainer_traj.load(args.model_path)
+        trainer_traj.diffusion_model.model = trainer_traj.ema_model
+    else:
+        diffusion = trainer_traj.diffusion_model
 
     policy_config = utils.Config(
         args.policy,
@@ -154,7 +157,10 @@ def main():
     policy = policy_config()
 
     _online_trainer = OnlineTrainer(state_model, trajectory_model, trainer_traj, trainer_state, env, dataset_traj, dataset_traj_fake, dataset_state, policy, args.predict_type,args.use_fake_buffer)
-    _online_trainer.train(args.train_freq, args.iterations)
+    if not args.eval:
+        _online_trainer.train(args.train_freq, args.iterations)
+    else:
+        _online_trainer.test(args.eval_epoch)
         
 
 if __name__ == "__main__":

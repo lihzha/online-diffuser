@@ -1,11 +1,13 @@
 import copy
 import numpy as np
 import os
+from diffuser.models.id import InverseDynamics
+import torch
 # from diffuser.utils.sampler import WeightedRandomSampler
 # from torch.utils.data import WeightedRandomSampler
 
 class OnlineTrainer:
-    def __init__(self, state_model, trajectory_model, trainer_traj, trainer_state, env, dataset_traj,dataset_traj_fake, dataset_state, policy, predict_type,use_fake_buffer):
+    def __init__(self, state_model, trajectory_model, trainer_traj, trainer_state, env, dataset_traj,dataset_traj_fake, dataset_state, policy, predict_type, use_fake_buffer, use_id=False):
 
         self.model = state_model
         self.trajectory_model = trajectory_model
@@ -38,15 +40,17 @@ class OnlineTrainer:
         # a = np.load('755_280.npy')
         # e = self.format_episode(None,np.zeros((200,4)),[a],np.zeros((200,1)),np.zeros((200,1)))
         # self.buffer.add_path(e)
-
+        self.use_id = use_id
+        if use_id:
+            self.controller = InverseDynamics(self.dataset.observation_dim * 2, 256, self.dataset.action_dim)
+            self.controller = self.controller.to(device=self.device)
 
     def train(self, train_freq, iterations):
         """Online training scenerio."""
         
-        total_reward = 0
 
         for it in range(iterations):
-            self.policy.diffusion_model.cnt = it
+            
             episode = {}
             if self.predict_type == 'joint':
                 actions, next_obs, obs, rew, terminals = [], [], [], [], []
@@ -55,7 +59,6 @@ class OnlineTrainer:
             elif self.predict_type == 'action_only':
                 actions, rew, terminals = [], [], [], []
             observation = self.env.reset()
-
             total_reward = 0
             target = self.sample_target(5)
             self.env.set_target(target)
@@ -64,7 +67,7 @@ class OnlineTrainer:
             cond = {
                 self.traj_len-1: cond_targ
             }
-            # test 
+
             warm_start = 800
             for t in range(self.max_path_length):
                 # first collect some good trajectories with hand-crafted controller (cheating for the time being)
@@ -72,28 +75,27 @@ class OnlineTrainer:
                     state = self.env.state_vector().copy()
                     action = cond_targ[:2] - state[:2] + (0 - state[2:])
                 else:
-                    # if t % self.traj_len == 0:
-                    if t == 0:
-                        cond[0] = self.env.state_vector().copy()
-                        # target = self.sample_target(5)
-                        cond_targ = np.zeros(self.dataset.observation_dim)
-                        cond[self.traj_len-1] = cond_targ    
+                    if t % (self.traj_len-1) == 0:
+                    # if t == 0:
+                        cond[0] = self.env.state_vector().copy()  
                         cnt = 0
-                        samples = self.policy(cond)
-                        obs_tmp = samples.observations
-                        if self.trainer.diffusion_model.condition_type == 'extend':
-                            obs_tmp = obs_tmp[:,:,4:]
-                        else:
-                            obs_tmp = obs_tmp[:,:,:]
-                        assert obs_tmp.shape[0] == 1
-                        obs_tmp = obs_tmp.squeeze()
+                        obs_tmp = self.sample_traj(cond)
+                        obs_tmp = moving_average(obs_tmp, 5)
                     # [0,traj_lan] use planning result, [traj_len,max_path] use simple controller
                     state = self.env.state_vector().copy()
-                    if t<self.traj_len:
-                        action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
-                        cnt += 1
-                    if t>=self.traj_len:
-                        action = cond_targ[:2] - state[:2] + (0 - state[2:])
+                    # if t<self.traj_len:
+                    #     action = obs_tmp[cnt,:2] - state[:2] + (obs_tmp[cnt,2:] - state[2:])
+                    #     cnt += 1
+                    # if t>=self.traj_len:
+                    #     action = cond_targ[:2] - state[:2] + (0 - state[2:])
+                    if self.use_id:
+                        states = np.concatenate((obs_tmp[cnt], obs_tmp[cnt+1]))
+                        states = torch.tensor(states, device=self.device)
+                        action = self.controller(states)
+                        action = action.cpu().numpy()
+                    else:
+                        action = obs_tmp[cnt,:2] - state[:2]
+                    cnt += 1
                 next_observation, reward, terminated, info = self.env.step(action)
                 
                 # cv2.imwrite('trial_rendering.png',self.env.render())
@@ -133,7 +135,7 @@ class OnlineTrainer:
 
                 observation = next_observation.copy()
             
-            if len(obs) >= 200:
+            if len(obs) >= 100:
                 if total_reward>0:
                 # if len(obs) >= 100:
                     if self.predict_type == 'joint':
@@ -145,7 +147,7 @@ class OnlineTrainer:
                     self.add_to_buffer(episode)
                 # save fake path lead to zero reward
                 if self.use_fake_buffer and it>warm_start and total_reward==0:
-                    obs_fake = samples.observations[0,:,4:] if self.trainer.diffusion_model.condition_type == 'extend' else samples.observations[0]
+                    obs_fake = obs_tmp
                     episode_fake,_ = self.format_episode(None, obs_fake,obs_fake,rew,terminals)
                     self.add_to_buffer_fake(episode_fake,length=episode_real_len)
 
@@ -159,80 +161,67 @@ class OnlineTrainer:
             print('Non-zero rewards is:', len(np.nonzero(self.total_reward)[0])/len(self.total_reward)*100, "%")
             # self.total_score.append(score) 
 
-            if it > 0 and it % train_freq == 0: 
+            if it >= warm_start and it % train_freq == 0:
                 num_trainsteps_traj = self.process_dataset(use_fake_buffer=self.use_fake_buffer)
                 # self.save_buffer(self.trainer.logdir)
-                self.trainer.train(num_trainsteps_traj,use_fake_buffer=self.use_fake_buffer)     
+                self.trainer.train(num_trainsteps_traj,use_fake_buffer=self.use_fake_buffer)
+                self.train_id()
                 # num_trainsteps_state = self.process_dataset(self.dataset_state)
                 # self.trainer_state.train(num_trainsteps_state//2)            
     
         print(self.total_reward)
 
-    def test(self, epoch):
+    def sample_traj(self, cond, batch_size=10):
+        samples = self.policy(conditions=cond, batch_size=batch_size)
+        obs_tmp = samples.observations
+        return obs_tmp
+
+    def test(self, eval_epoch):
+        """Online training scenerio."""
         score_list = []
         total_reward_list = []
-        for i in range(epoch):
-            total_reward = 0
-            observation = self.env.reset()
-            # target = self.sample_target(10)
+
+        for it in range(eval_epoch):
             cond_targ = np.zeros(self.dataset.observation_dim)
-            # self.env.set_target(target)
             cond_targ[:2] = self.env._target
             cond = {
-                self.traj_len - 1: cond_targ
+                self.traj_len-1: cond_targ
             }
+            observation = self.env.reset()
             rollout = [observation.copy()]
-            fake_rollout = 0
-            for t in range(self.max_path_length):
-                if t % 20 == 0:
+            savepath = os.path.join(self.trainer.logdir, f'rollout_{it}.png')
+            savepath2 = os.path.join(self.trainer.logdir, f'model_rollout_{0}.png')
+            total_reward = 0
+            for t in range(self.env.max_episode_steps):
+                if t % self.traj_len == 0:
                     cond[0] = self.env.state_vector().copy()
                     cnt = 0
-                    samples = self.policy(cond,batch_size=10)
-                    obs_tmp = samples.observations
-                    if not isinstance(fake_rollout, np.ndarray):
-                        fake_rollout = obs_tmp
-                    else:
-                        fake_rollout = np.concatenate((fake_rollout, obs_tmp),axis=1)
-                # design a simple controller based on observations
+                    obs_tmp = self.sample_traj(cond)
+                    obs_tmp = moving_average(obs_tmp, 5)
+                    # self.trainer.renderer.composite(savepath2, obs_tmp[None],ncol=1)
                 state = self.env.state_vector().copy()
-                action = obs_tmp[0,cnt,:2] - state[:2] + (obs_tmp[0,cnt,2:] - state[2:])
+                action = obs_tmp[cnt,:2] - state[:2]
                 cnt += 1
                 next_observation, reward, terminated, info = self.env.step(action)
+                rollout.append(next_observation.copy())
 
                 total_reward += reward
-                rollout.append(next_observation.copy())
-                if self.env.__repr__() == 'maze2d':
-                    xy = next_observation[:2]
-                    goal = self.env.unwrapped._target
-                    print(
-                        f'it: {t} | maze | pos: {xy} | goal: {goal}'
-                    )
-                else:
-                    xy = next_observation[:2]
-                    dist = np.linalg.norm(xy-cond_targ[:2])
-                    print(
-                        f'it: {i} | panda | dist: {dist}'
-                    )
-
-                if terminated:
-                    break
-
-                observation = next_observation
-                print(t)
+                # if reward>0:
+                #     total_reward += (self.env.max_episode_steps-t)
+                #     break
+                # else:
+                #     total_reward += reward
+            print(total_reward)
+            # self.trainer.renderer.composite(savepath,np.array(rollout)[None],ncol=1)
             score = self.env.get_normalized_score(total_reward)
             score_list.append(score)
             total_reward_list.append(total_reward)
-        rollout = np.array(rollout)[None]
-        savepath = os.path.join(self.trainer.logdir, f'rollout_{i}.png')
-        self.trainer.renderer.composite(savepath,rollout,ncol=1)
-        savepath = os.path.join(self.trainer.logdir, f'fake_rollout_{i}.png')
-        self.trainer.renderer.composite(savepath,fake_rollout,ncol=5)
-        score_array = np.array(score_list)
-        total_reward_array = np.array(total_reward_list)
         print('score_list:', score_list)
         print('total_reward_list:', total_reward_list)
-        print('score mean and std:', score_array.mean(), score_array.std())
-        print('reward mean and std:', total_reward_array.mean(), total_reward_array.std())
+        score_array = np.array(score_list)
+        total_reward_array = np.array(total_reward_list)
+        print('score mean and std:', score_array.mean(), score_array.std()/np.sqrt(eval_epoch))
+        print('reward mean and std:', total_reward_array.mean(), total_reward_array.std()/np.sqrt(eval_epoch))
 
     def save_buffer(self, path):
         
@@ -348,4 +337,10 @@ class OnlineTrainer:
             raise NotImplementedError
         self.dataset_state.fields['energy'] = total_energy
         return total_energy
+
+def moving_average(obs, window):
+    obs_tmp = obs.copy()
+    for i in range(obs.shape[0]-window):
+        obs_tmp[i,:] = obs[i:i+window,:].mean(axis=0)
+    return obs_tmp
 
