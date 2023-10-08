@@ -60,22 +60,25 @@ class OnlineTrainer:
                 actions, rew, terminals = [], [], [], []
             observation = self.env.reset()
             total_reward = 0
-            target = self.sample_target(5)
-            self.env.set_target(target)
+            # target = self.sample_target(5)
+            # self.env.set_target(target)
+            self.env.set_target()
             cond_targ = np.zeros(self.dataset.observation_dim)
             cond_targ[:2] = self.env.get_target()
             cond = {
                 self.traj_len-1: cond_targ
             }
 
-            warm_start = 800
+            warm_start = 980
+            self.stride = 150
+            self.replan_freq = self.stride
             for t in range(self.max_path_length):
                 # first collect some good trajectories with hand-crafted controller (cheating for the time being)
                 if it < warm_start:
                     state = self.env.state_vector().copy()
                     action = cond_targ[:2] - state[:2] + (0 - state[2:])
                 else:
-                    if t % (self.traj_len-1) == 0:
+                    if t % self.replan_freq == 0:
                     # if t == 0:
                         cond[0] = self.env.state_vector().copy()  
                         cnt = 0
@@ -135,21 +138,21 @@ class OnlineTrainer:
 
                 observation = next_observation.copy()
             
-            if len(obs) >= 100:
-                if total_reward>0:
+            if len(obs) >= self.traj_len:
+                # if total_reward>0:
                 # if len(obs) >= 100:
-                    if self.predict_type == 'joint':
-                        episode,episode_real_len = self.format_episode(actions, next_obs, np.array(obs), rew, terminals)
-                    elif self.predict_type == 'obs_only':
-                        episode,episode_real_len = self.format_episode(None, next_obs, np.array(obs), rew, terminals)
-                    elif self.predict_type == 'action_only':
-                        episode,episode_real_len = self.format_episode(actions, None, None, rew, terminals)     
-                    self.add_to_buffer(episode)
+                if self.predict_type == 'joint':
+                    episode = self.format_episode(actions, next_obs, np.array(obs), rew, terminals)
+                elif self.predict_type == 'obs_only':
+                    episode = self.format_episode(None, next_obs, np.array(obs), rew, terminals)
+                elif self.predict_type == 'action_only':
+                    episode = self.format_episode(actions, None, None, rew, terminals)     
+                self.add_to_buffer(episode, cond[self.traj_len-1])
                 # save fake path lead to zero reward
                 if self.use_fake_buffer and it>warm_start and total_reward==0:
                     obs_fake = obs_tmp
-                    episode_fake,_ = self.format_episode(None, obs_fake,obs_fake,rew,terminals)
-                    self.add_to_buffer_fake(episode_fake,length=episode_real_len)
+                    episode_fake = self.format_episode(None, obs_fake,obs_fake,rew,terminals)
+                    self.add_to_buffer_fake(episode_fake)
 
                 # self.trainer.renderer.composite('b.png',np.array(episode['observations'])[None],ncol=1)
             
@@ -165,7 +168,7 @@ class OnlineTrainer:
                 num_trainsteps_traj = self.process_dataset(use_fake_buffer=self.use_fake_buffer)
                 # self.save_buffer(self.trainer.logdir)
                 self.trainer.train(num_trainsteps_traj,use_fake_buffer=self.use_fake_buffer)
-                self.train_id()
+                # self.train_id()
                 # num_trainsteps_state = self.process_dataset(self.dataset_state)
                 # self.trainer_state.train(num_trainsteps_state//2)            
     
@@ -230,36 +233,26 @@ class OnlineTrainer:
 
     def format_episode(self,actions,next_obs,obs,rew,terminals):
         """Turn generated samples into episode format."""
-
         episode = {}
-        episode_length = obs.shape[0]
-        if episode_length % 20 != 0:
-            episode_real_len = int((episode_length // 20 + 1) * 20)
-        else:
-            episode_real_len = int((episode_length // 20) * 20)
-        if actions != None:
+        if actions is not None:
+            episode_length = len(actions)
             episode['actions'] = np.array(actions).reshape((episode_length,-1))
-        # if obs != None:
-        episode['next_observations'] = np.zeros((episode_real_len, self.dataset.observation_dim), dtype=np.float32)
-        episode['next_observations'][:episode_length] = np.array(next_obs).reshape((episode_length,-1))
-        episode['next_observations'][episode_length:] = episode['next_observations'][episode_length-1]
-        episode['observations'] = np.zeros((episode_real_len, self.dataset.observation_dim), dtype=np.float32)
-        episode['observations'][:episode_length] = np.array(obs).reshape((episode_length,-1))
-        episode['observations'][episode_length:] = episode['observations'][episode_length-1]
+        else:
+            episode_length = len(rew)
+        episode['next_observations'] = np.array(next_obs).reshape((episode_length,-1))
+        episode['observations'] = np.array(obs).reshape((episode_length,-1))
+        episode['rewards'] = np.array(rew).reshape((episode_length,-1))
+        episode['terminals'] = np.array(terminals).reshape((episode_length,-1))
+        # episode['infos/action_log_probs'] = np.array(action_log_probs).reshape((self.max_path_length,-1))
+        # episode['infos/qpos'] = np.array(qposs).reshape((self.max_path_length,-1))
+        # episode['infos/qvel'] = np.array(qvels).reshape((self.max_path_length,-1))
+        # episode['timeouts'] = np.array(timeouts).reshape((self.max_path_length,-1))
+        return episode
 
-        episode['rewards'] = np.zeros((episode_real_len,1))
-        # episode['rewards'][:episode_length,0] = np.array(rew)
-        # episode['rewards'][episode_length:,0] = np.array(rew)[-1]
-        episode['terminals'] = np.zeros((episode_real_len,1))
-        # episode['terminals'][:episode_length,0] = np.array(terminals)
-        # episode['terminals'][episode_length:,0] = np.array(terminals)[-1]
-
-        return episode,episode_real_len
-
-    def add_to_buffer(self, episode):
+    def add_to_buffer(self, episode, cond):
         """Update the field with newly-generated samples."""
 
-        self.buffer.add_path(episode)
+        self.buffer.add_path(episode, cond)
         print(self.buffer)
     
     def add_to_buffer_fake(self, episode, length):
@@ -273,7 +266,7 @@ class OnlineTrainer:
 
         self.dataset.set_fields(self.buffer)
         self.policy.normalizer = self.dataset.normalizer
-        self.dataset.indices = self.dataset.make_fix_indices()
+        self.dataset.indices = self.dataset.make_indices(self.dataset.fields.path_lengths, self.dataset.horizon, self.stride)
         if use_fake_buffer:
             self.dataset_fake.set_fields(self.buffer_fake)
             self.dataset_fake.indices = self.dataset_fake.make_fix_indices()

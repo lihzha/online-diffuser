@@ -32,11 +32,7 @@ def default_sample_fn(model, x, cond, t):
 
 def sort_by_values(x, values):
     inds = torch.argsort(values, descending=True)
-
-
     inds = torch.randperm(inds.shape[0], device=inds.device)
-
-    
     x = x[inds]
     values = values[inds]
     return x, values
@@ -258,7 +254,7 @@ class GaussianDiffusion(nn.Module):
         x = torch.randn(shape, device=device)
         # x = pair_consistency(x)
         if self.condition_type == 'extend':
-            x = extend(x, cond)
+            x = extend(x, cond, first=True)
         x = apply_conditioning(x, cond, self.action_dim, self.condition_type)
         # x = new_apply_conditioning(x, cond, self.action_dim)
         x = self.to_torch(x)
@@ -269,6 +265,8 @@ class GaussianDiffusion(nn.Module):
             x = self.n_step_guided_p_sample(x, cond, t, **sample_kwargs)
             # x = new_apply_conditioning(x, cond, self.action_dim)
             x = apply_conditioning(x, cond, self.action_dim, self.condition_type)
+            if self.condition_type == 'extend':
+                x = extend(x, cond, first=False)
             # x = pair_consistency(x)
             if return_chain: chain.append(x)
 
@@ -282,7 +280,7 @@ class GaussianDiffusion(nn.Module):
         batch_size = shape[0]
         x = torch.randn(shape, device=device)
         if self.condition_type == 'extend':
-            x = extend(x, cond)
+            x = extend(x, cond, first=True)
         x = apply_conditioning(x, cond, self.action_dim, self.condition_type)
         x = self.to_torch(x)
         chain = [x] if return_chain else None
@@ -290,6 +288,8 @@ class GaussianDiffusion(nn.Module):
             t = make_timesteps(batch_size, t, device)
             prev_t = make_timesteps(batch_size, prev_t, device)
             x = self.n_step_guided_ddim_sample(x, cond, t, prev_t, **sample_kwargs)
+            if self.condition_type == 'extend':
+                x = extend(x, cond, first=False)
             x = apply_conditioning(x, cond, self.action_dim, self.condition_type)
             if return_chain: chain.append(x)
         if return_chain: chain = torch.stack(chain, dim=1)
@@ -385,16 +385,15 @@ class GaussianDiffusion(nn.Module):
 
         # Train trajectory model
         if self.condition_type == 'extend':
-            x_start = extend(x_start, cond)
+            x_start = extend(x_start, cond, first=True)
+            x_start = apply_conditioning(x_start, cond, self.action_dim, self.condition_type)
         noise = torch.randn_like(x_start)
-        # mask = ~(x_start.sum(-1) == 0)[:,:,None]
-        # noise = noise * mask
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        if x_noisy.shape[1] != 1:
+        if x_noisy.shape[1] != 1: # not state model
             x_noisy = apply_conditioning(x_noisy, cond, self.action_dim, self.condition_type)
-            # x_noisy = x_noisy * mask
+            x_noisy = extend(x_noisy, cond, first=False)
             x_recon = self.model(x_noisy, cond, t, fake)
-        else:
+        else:  # state model
             x_recon = self.state_model(x_noisy, cond, t)
 
         assert noise.shape == x_recon.shape
@@ -403,7 +402,7 @@ class GaussianDiffusion(nn.Module):
             # x_recon *= extract(self.sqrt_one_minus_alphas_cumprod, t, x_recon.shape)
             loss, info = self.loss_fn(x_recon, noise)
         else:
-            x_recon = apply_conditioning(x_recon, cond, self.action_dim, self.condition_type)
+            # x_recon = apply_conditioning(x_recon, cond, self.action_dim, self.condition_type)
             loss, info = self.loss_fn(x_recon, x_start)
         # if fake:
         #     loss*=-1

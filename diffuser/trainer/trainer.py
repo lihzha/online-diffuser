@@ -104,14 +104,14 @@ class Trainer(object):
         #     packed_traj = pack_padded_sequence(traj, path_length, batch_first=True, enforce_sorted=False)
         #     conditions = {key: torch.as_tensor([b.conditions[key] for b in batch], dtype=torch.float32) for key in batch[0].conditions.keys()}
             # return (packed_traj, conditions)
-        def my_collate(batch):
-            assert len(batch) == 1
-            traj = batch[0].trajectories
-            cond = batch[0].conditions
-            return (traj, cond)
+        # def my_collate(batch):
+        #     assert len(batch) == 1
+        #     traj = batch[0].trajectories
+        #     cond = batch[0].conditions
+        #     return (traj, cond)
         if batch_size == None and sampler == None:
             self.dataloader = cycle(torch.utils.data.DataLoader(
-                    self.dataset, batch_size=self.batch_size, num_workers=1, shuffle=True, pin_memory=True, collate_fn=my_collate))
+                    self.dataset, batch_size=self.batch_size, num_workers=1, shuffle=True, pin_memory=True))
         elif batch_size != None and sampler == None:
             self.dataloader = cycle(torch.utils.data.DataLoader(
                     self.dataset, batch_size=batch_size, num_workers=1, shuffle=True, pin_memory=True))
@@ -123,7 +123,7 @@ class Trainer(object):
         if use_fake_buffer:
             if batch_size == None and sampler == None:
                 self.dataloader_fake = cycle(torch.utils.data.DataLoader(
-                        self.dataset_fake, batch_size=self.batch_size, num_workers=1, shuffle=True, pin_memory=True, collate_fn=my_collate))
+                        self.dataset_fake, batch_size=self.batch_size, num_workers=1, shuffle=True, pin_memory=True))
             elif batch_size != None and sampler == None:
                 self.dataloader_fake = cycle(torch.utils.data.DataLoader(
                         self.dataset_fake, batch_size=batch_size, num_workers=1, shuffle=True, pin_memory=True))
@@ -231,7 +231,7 @@ class Trainer(object):
 
         ## get a temporary dataloader to load a single batch
         dataloader_tmp = cycle(torch.utils.data.DataLoader(
-            self.dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True
+            self.dataset, batch_size=batch_size, num_workers=0, shuffle=True, pin_memory=True
         ))
         batch = dataloader_tmp.__next__()
         dataloader_tmp.close()
@@ -244,7 +244,8 @@ class Trainer(object):
         # normed_observations = trajectories[:, :, self.dataset.action_dim:]
         normed_observations = trajectories
         observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
-        observations = observations.squeeze(0)
+        if len(observations) == 2:
+            observations = observations[None]
 
         # from diffusion.datasets.preprocessing import blocks_cumsum_quat
         # # observations = conditions + blocks_cumsum_quat(deltas)
@@ -278,7 +279,8 @@ class Trainer(object):
             batch = self.dataloader_vis.__next__()
             conditions = batch.conditions
             trajectories = batch.trajectories
-            trajectories = trajectories.squeeze(0)
+            if len(trajectories) == 2:
+                trajectories = trajectories[None]
             if i == 0:
                 conditions[0] = np.array([1,1,0,0])[None]
                 conditions[trajectories.shape[1]-1] = np.array([1,8,0,0])[None]
@@ -313,13 +315,14 @@ class Trainer(object):
 
             ## [ n_samples x (horizon + 1) x observation_dim ]
             observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
+            if len(observations.shape) == 2:
+                observations = observations[None]
             if self.diffusion_model.condition_type == 'extend':
                 round = 2
             else:
                 round = 1
             for j in range(round):
                 obs = observations[:,:,j*4:(j+1)*4]
-
                 savepath = os.path.join(self.logdir, f'sample-{self.step}-{i}-{j}.png')
                 self.renderer.composite(savepath, obs,ncol=5)
     

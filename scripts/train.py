@@ -162,9 +162,7 @@ def main():
     else:
         _online_trainer.test(args.eval_epoch)
         
-
 if __name__ == "__main__":
-    
     main()
 
 

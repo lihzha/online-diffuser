@@ -95,8 +95,11 @@ def cosine_beta_schedule(timesteps, s=0.008, dtype=torch.float32):
     betas_clipped = np.clip(betas, a_min=0, a_max=0.999)
     return torch.tensor(betas_clipped, dtype=dtype)
 
-def extend(x, conditions):
-    cond_array = torch.ones_like(x)
+def extend(x, conditions, first=True):
+    if first:
+        cond_array = torch.ones_like(x)
+    else:
+        cond_array = torch.ones((x.shape[0], x.shape[1], x.shape[2]//2), device=x.device, dtype=x.dtype)
     traj_len = cond_array.shape[1]
     assert len(list(conditions.keys())) == 2
     for t, val in conditions.items():
@@ -107,13 +110,17 @@ def extend(x, conditions):
         else:
             # cond_array[:, 1::2, :] *= val[0]
             cond_array[:,traj_len:, :] *= val[0]
-    x = torch.cat((cond_array, x), dim=2)
+    if first:
+        x = torch.cat((cond_array, x), dim=2)
+    else:
+        x[:,:,:x.shape[2]//2] = cond_array
     return x
 
 def apply_conditioning(x, conditions, action_dim, condition_type):
     if condition_type == 'extend':
         for t, val in conditions.items():
-            x[:, t, action_dim+4:] = val.clone()
+            if int(t) == 0:
+                x[:, t, action_dim+4:] = val.clone()
     else:
         for t, val in conditions.items():
             x[:, t, action_dim:] = val.clone()

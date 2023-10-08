@@ -9,7 +9,7 @@ from .preprocessing import get_preprocess_fn
 from .normalization import DatasetNormalizer
 from .buffer import ReplayBuffer
 
-Batch = namedtuple('Batch', 'trajectories conditions')
+Batch = namedtuple('Batch', 'trajectories conditions path_length')
 ValueBatch = namedtuple('ValueBatch', 'trajectories conditions values')
 
 class SequenceDataset(torch.utils.data.Dataset):
@@ -42,28 +42,9 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.fields.observation_dim = self.observation_dim
         self.fields.action_dim = self.action_dim
         self.n_episodes = self.fields.n_episodes
-        # self.path_lengths = self.fields['path_lengths']
+        self.path_lengths = self.fields['path_lengths']
         self.normalize()
         
-
-    # def normalize(self, keys=None):
-    #     '''
-    #         normalize fields that will be predicted by the diffusion model
-    #     '''
-    #     if self.predict_type == 'obs_only':
-    #         keys=['observations']
-    #     elif self.predict_type == 'action_only':
-    #         keys=['actions']
-    #     elif self.predict_type == 'joint':
-    #         keys=['observations', 'actions']
-    #     else:
-    #         raise NotImplementedError
-    #     for key in keys:
-    #         array = self.fields[key].reshape(self.n_episodes*self.max_path_length, -1)
-    #         normed = self.normalizer(array, key)
-    #         self.fields[f'normed_{key}'] = normed.reshape(self.n_episodes, self.max_path_length, -1)
-    #         for i in range(self.n_episodes):
-    #             self.fields[f'normed_{key}'][i,self.path_lengths[i]:] = 0.
 
     def normalize(self, keys=None):
         '''
@@ -77,33 +58,51 @@ class SequenceDataset(torch.utils.data.Dataset):
             keys=['observations', 'actions']
         else:
             raise NotImplementedError
-        
         for key in keys:
-            first = True
-            for k in self.fields[key].keys():
-                shape = self.fields[key][k].shape
-                array = self.fields[key][k].reshape((-1,shape[-1]))
-                normed = self.normalizer(array, key)
-                if first:
-                    self.fields[f'normed_{key}'] = {k: normed.reshape(shape)}
-                    first = False
-                else:
-                    self.fields[f'normed_{key}'][k] = normed.reshape(shape)
+            array = self.fields[key].reshape(self.n_episodes*self.max_path_length, -1)
+            normed = self.normalizer(array, key)
+            self.fields[f'normed_{key}'] = normed.reshape(self.n_episodes, self.max_path_length, -1)
+            for i in range(self.n_episodes):
+                self.fields[f'normed_{key}'][i,self.path_lengths[i]:] = 0.
 
-    def make_indices(self, path_lengths, horizon):
+    # def normalize(self, keys=None):
+    #     '''
+    #         normalize fields that will be predicted by the diffusion model
+    #     '''
+    #     if self.predict_type == 'obs_only':
+    #         keys=['observations']
+    #     elif self.predict_type == 'action_only':
+    #         keys=['actions']
+    #     elif self.predict_type == 'joint':
+    #         keys=['observations', 'actions']
+    #     else:
+    #         raise NotImplementedError
+        
+    #     for key in keys:
+    #         first = True
+    #         for k in self.fields[key].keys():
+    #             shape = self.fields[key][k].shape
+    #             array = self.fields[key][k].reshape((-1,shape[-1]))
+    #             normed = self.normalizer(array, key)
+    #             if first:
+    #                 self.fields[f'normed_{key}'] = {k: normed.reshape(shape)}
+    #                 first = False
+    #             else:
+    #                 self.fields[f'normed_{key}'][k] = normed.reshape(shape)
+
+    def make_indices(self, path_lengths, horizon, stride):
         '''
             makes indices for sampling from dataset;
             each index maps to a datapoint
         '''
         indices = []
         for i, path_length in enumerate(path_lengths):
-            max_start = min(path_length - horizon + 1, self.max_path_length - horizon + 1)
-            if max_start < 0:
-                max_start = 0
+            max_start = path_length - horizon + 1
             if max_start > 0:
-                for start in range(max_start):
+                for start in range(0, max_start, stride):
                     end = start + horizon
                     indices.append((i, start, end))
+                indices.append((i, path_length-horizon, path_length))
             elif max_start == 0:
                 end = horizon
                 indices.append((i,0,end))
@@ -156,37 +155,37 @@ class SequenceDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.indices)
 
-    # def __getitem__(self, idx, eps=1e-4):
-    #     path_ind, start, end = self.indices[idx]
-
-    #     if self.predict_type == 'joint':
-    #         observations = self.fields.normed_observations[path_ind, start:end]
-    #         actions = self.fields.normed_actions[path_ind, start:end]
-    #         trajectories = np.concatenate([actions, observations], axis=-1)
-    #     elif self.predict_type == 'obs_only':
-    #         observations = self.fields.normed_observations[path_ind, start:end]
-    #         padded_observations = np.zeros((self.max_path_length, self.observation_dim))
-    #         path_length = observations.shape[0]
-    #         padded_observations[:path_length] = observations
-    #         trajectories = padded_observations
-    #         # trajectories = observations
-    #     elif self.predict_type == 'action_only':
-    #         actions = self.fields.normed_actions[path_ind, start:end]
-    #         trajectories = actions
-    #     conditions = self.get_conditions(padded_observations, path_length-1)
-    #     batch = Batch(trajectories, conditions, path_length)
-    #     return batch
-    
     def __getitem__(self, idx, eps=1e-4):
+        path_ind, start, end = self.indices[idx]
 
-        if self.predict_type == 'obs_only':
-            real_idx = self.indices[idx]
-            observations = self.fields.normed_observations[real_idx]
-        else:
-            raise NotImplementedError
-        conditions = self.get_batch_conditions(observations)
-        batch = Batch(observations, conditions)
+        if self.predict_type == 'joint':
+            observations = self.fields.normed_observations[path_ind, start:end]
+            actions = self.fields.normed_actions[path_ind, start:end]
+            trajectories = np.concatenate([actions, observations], axis=-1)
+        elif self.predict_type == 'obs_only':
+            observations = self.fields.normed_observations[path_ind, start:end]
+            path_length = observations.shape[0]
+            trajectories = observations
+            # trajectories = observations
+        elif self.predict_type == 'action_only':
+            actions = self.fields.normed_actions[path_ind, start:end]
+            trajectories = actions
+        # conditions = self.get_conditions(padded_observations)
+        cond_last = self.normalizer.normalizers['observations'].normalize(self.fields.conditions[path_ind])
+        conditions = {0: observations[0], self.horizon-1:cond_last}
+        batch = Batch(trajectories, conditions, path_length)
         return batch
+    
+    # def __getitem__(self, idx, eps=1e-4):
+
+    #     if self.predict_type == 'obs_only':
+    #         real_idx = self.indices[idx]
+    #         observations = self.fields.normed_observations[real_idx]
+    #     else:
+    #         raise NotImplementedError
+    #     conditions = self.get_batch_conditions(observations)
+    #     batch = Batch(observations, conditions)
+    #     return batch
 
 
     def get_all_item(self):

@@ -5,10 +5,10 @@ base = {
 
     'online_training': {
 
-        'dirname':'modify_controller',
+        'dirname':'one_condition',
         'eval': False,
         'eval_epoch': 100,
-        'model_path': '/home/lihan/online-diffuser/state_80000.pt',
+        'model_path': None,
 
         # environment:
         'env_wrapper': 'environments.d4rl_env_wrapper',
@@ -23,7 +23,7 @@ base = {
         'max_n_episodes': 3000,
         'predict_type': 'obs_only',
         'device': 'cuda:2',
-        'use_fake_buffer':True,
+        'use_fake_buffer':False,
 
         # renderer
         'renderer': 'utils.Maze2dRenderer',
@@ -48,7 +48,7 @@ base = {
         'condition_type': 'extend', #normal
 
         # trainer
-        'traj_batchsize': 1,
+        'traj_batchsize': 64,
         'state_batchsize': 512,
         'learning_rate': 2e-4,
         'gradient_accumulate_every': 2,
@@ -76,7 +76,7 @@ base = {
         # online trainer
         'train_freq': 1000,
         'iterations': 300001,
-        'traj_len': 256,
+        'traj_len': 300,
 
     },
 
