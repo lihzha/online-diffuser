@@ -1,8 +1,0 @@
-{
-    "files.exclude": {
-        "**/.git": false
-    },
-    "python.analysis.extraPaths": [
-        "./diffuser/environments/panda-gym"
-    ]
-}
