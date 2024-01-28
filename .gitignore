@@ -150,3 +150,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+.pt
+.vscode/
+difusser_80000.pt
+state_80000.pt

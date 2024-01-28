@@ -1,18 +1,3 @@
-# Planning with Diffusion &nbsp;&nbsp; [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1YajKhu-CUIGBJeQPehjVPJcK_b38a8Nc?usp=sharing)
-
-
-Training and visualizing of diffusion models from [Planning with Diffusion for Flexible Behavior Synthesis](https://diffusion-planning.github.io/).
-This branch has the Maze2D experiments and will be merged into main shortly.
-
-<p align="center">
-    <img src="https://diffusion-planning.github.io/images/diffuser-card.png" width="60%" title="Diffuser model">
-</p>
-
-## Quickstart
-
-Load a pretrained diffusion model and sample from it in your browser with [scripts/diffuser-sample.ipynb](https://colab.research.google.com/drive/1YajKhu-CUIGBJeQPehjVPJcK_b38a8Nc?usp=sharing).
-
-
 ## Installation
 
 ```
@@ -21,89 +6,32 @@ conda activate diffusion
 pip install -e .
 ```
 
-## Usage
+If you encounter any missing packages after running above codes, please install them on your own and report the bugs to me. Thanks for your understanding.
 
-Train a diffusion model with:
+## Run experiments
+
 ```
-python scripts/train.py --config config.maze2d --dataset maze2d-large-v1
+python scripts/train.py
 ```
+For the usage of arguments, please refer to `config/maze2d_config.py`, which defines all hyper-parameters, configurations for training and testing.
 
-The default hyperparameters are listed in [`config/maze2d.py`](config/maze2d.py).
-You can override any of them with runtime flags, eg `--batch_size 64`.
+All the results will be saved in the folder `logs/`, including the visualizations. Make sure to check them occasionally during the training process to make sure things are going right.
 
-Plan using the diffusion model with:
-```
-python scripts/plan_maze2d.py --config config.maze2d --dataset maze2d-large-v1
-```
+## Code structure
+`diffuser/datasets`: contains codes about how data/trajectories are loaded, processed and setored in the buffer. If you want to use offline dataset, please refer to codes in this folder.
 
+`diffuser/environments`: defines all mujoco environments. Currently we don't need to care about them since we run environments in maze-2d.
 
-## Docker
+`diffuser/models`: contains all core codes about diffusion models and energy-based diffusion models. You should carefully review the codes in `./diffusion.py` and `./EBM.py` and make sure you fully understand them. If you are interested in how U-Net looks like, you can refer to `./temporal.py`. You don't need to check `./id.py` and `./value_function.py`.
 
-1. Build the container:
-```
-docker build -f azure/Dockerfile . -t diffuser
-```
+`diffuser/sampling`: contains codes about the core reverse sampling process (`./functions.py`), definitions of different guides (`./guides.py`, you only need to check class EBM_DensityGuide), and the wrapper implementation of the diffuser policy (`./policies.py`).
 
-2. Test the container:
-```
-docker run -it --rm --gpus all \
-    --mount type=bind,source=$PWD,target=/home/code \
-    --mount type=bind,source=$HOME/.d4rl,target=/root/.d4rl \
-    diffuser \
-    bash -c \
-    "export PYTHONPATH=$PYTHONPATH:/home/code && \
-    python /home/code/scripts/train.py --dataset hopper-medium-expert-v2 --logbase logs/docker"
-```
+`diffuser/trainer`: defines all functions for online training in `./online_trainer.py`, and defines the training process of diffusion models in `./trainer.py`. Make sure to check both files and understand what each functions are doing.
 
+`diffuser/utils`: defines all utilization functions., e.g. rendering, transformation and timing. You only need to check them when you need to debug them (which is rare).
 
-## Running on Azure
-
-#### Setup
-
-1. Launching jobs on Azure requires one more python dependency:
-```
-pip install git+https://github.com/JannerM/doodad.git@janner
-```
-
-2. Tag the image built in [the previous section](#Docker) and push it to Docker Hub:
-```
-export DOCKER_USERNAME=$(docker info | sed '/Username:/!d;s/.* //')
-docker tag diffuser ${DOCKER_USERNAME}/diffuser:latest
-docker image push ${DOCKER_USERNAME}/diffuser
-```
-
-3. Update [`azure/config.py`](azure/config.py), either by modifying the file directly or setting the relevant [environment variables](azure/config.py#L47-L52). To set the `AZURE_STORAGE_CONNECTION` variable, navigate to the `Access keys` section of your storage account. Click `Show keys` and copy the `Connection string`.
-
-4. Download [`azcopy`](https://docs.microsoft.com/en-us/azure/storage/common/storage-use-azcopy-v10): `./azure/download.sh`
-
-#### Usage
-
-Launch training jobs with `python azure/launch.py`. The launch script takes no command-line arguments; instead, it launches a job for every combination of hyperparameters in [`params_to_sweep`](azure/launch_train.py#L36-L38).
-
-
-#### Viewing results
-
-To rsync the results from the Azure storage container, run `./azure/sync.sh`.
-
-To mount the storage container:
-1. Create a blobfuse config with `./azure/make_fuse_config.sh`
-2. Run `./azure/mount.sh` to mount the storage container to `~/azure_mount`
-
-To unmount the container, run `sudo umount -f ~/azure_mount; rm -r ~/azure_mount`
-
-
-## Reference
-```
-@inproceedings{janner2022diffuser,
-  title = {Planning with Diffusion for Flexible Behavior Synthesis},
-  author = {Michael Janner and Yilun Du and Joshua B. Tenenbaum and Sergey Levine},
-  booktitle = {International Conference on Machine Learning},
-  year = {2022},
-}
-```
-
+`scripts`: defines all runnable scripts. Leave all the scripts in `scripts/old_scripts` alone. You need to carefully check the code in `./train.py`.
 
 ## Acknowledgements
 
 The diffusion model implementation is based on Phil Wang's [denoising-diffusion-pytorch](https://github.com/lucidrains/denoising-diffusion-pytorch) repo.
-The organization of this repo and remote launcher is based on the [trajectory-transformer](https://github.com/jannerm/trajectory-transformer) repo.
