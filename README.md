@@ -15,7 +15,7 @@ python scripts/train.py
 ```
 For the usage of arguments, please refer to `config/maze2d_config.py`, which defines all hyper-parameters, configurations for training and testing.
 
-All the results will be saved in the folder `logs/`, including the visualizations. Make sure to check them occasionally during the training process to make sure things are going right.
+All the results will be saved in the folder `logs/`, including the visualizations. Make sure to check them occasionally during the training process to make sure things are going right.    
 
 ## Code structure
 `diffuser/datasets`: contains codes about how data/trajectories are loaded, processed and setored in the buffer. If you want to use offline dataset, please refer to codes in this folder.
